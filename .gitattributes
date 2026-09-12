@@ -1,0 +1,15 @@
+# Normaliser les fichiers texte pour les contributions multi-plateformes.
+* text=auto
+*.cs text eol=lf
+*.xaml text eol=lf
+*.csproj text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
