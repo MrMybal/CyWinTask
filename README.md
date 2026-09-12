@@ -109,7 +109,9 @@ Les distributions autonomes incluent .NET Desktop : aucune installation séparé
 Pour fabriquer les deux distributions, utiliser le SDK .NET 8 ou supérieur et [Inno Setup 6](https://jrsoftware.org/isdl.php) :
 
 ```powershell
-powershell -NoProfile -File packaging/Build-Release.ps1 -Version 0.5.2 -InnoCompiler "C:\chemin\vers\ISCC.exe"
+powershell -NoProfile -File packaging/Build-Release.ps1 -Version 0.5.3 -InnoCompiler "C:\chemin\vers\ISCC.exe"
 ```
 
-Les livrables et leurs empreintes SHA-256 sont placés dans `artifacts/releases/0.5.2/`. Ce dossier est ignoré par Git ; les binaires sont destinés aux pièces jointes des versions GitHub (Releases). Le script utilise un dossier de publication neuf à chaque exécution pour éviter d’intégrer des fichiers provenant d’une ancienne compilation. Les binaires ne sont pas signés avec un certificat de signature de code.
+Les livrables et leurs empreintes SHA-256 sont placés dans `artifacts/releases/0.5.3/`. Ce dossier est ignoré par Git ; les binaires sont destinés aux pièces jointes des versions GitHub (Releases). Le script utilise un dossier de publication neuf à chaque exécution pour éviter d’intégrer des fichiers provenant d’une ancienne compilation. Les binaires ne sont pas signés avec un certificat de signature de code.
+
+Avant publication, contrôler le dossier distribué et le ZIP avec `python scripts/check-distribution-privacy.py <dossier-ou-zip>`. Vérifier également les fichiers réellement installés. Les tests de cet audit utilisent uniquement des données fictives : `python Tests/test_distribution_privacy.py`.

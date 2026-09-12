@@ -1,6 +1,6 @@
 ﻿#define AppName "CyWinTask"
 #ifndef AppVersion
-  #define AppVersion "0.5.2"
+  #define AppVersion "0.5.3"
 #endif
 #ifndef PublishDir
   #error PublishDir must point to the self-contained publish directory.

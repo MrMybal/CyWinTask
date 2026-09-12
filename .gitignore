@@ -52,3 +52,7 @@ Desktop.ini
 # Private local data and diagnostic outputs
 /.openai/hosting.json
 *.binlog
+
+# Python verification tools
+__pycache__/
+*.py[cod]

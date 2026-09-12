@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '0.5.2',
+    [string]$Version = '0.5.3',
     [string]$InnoCompiler
 )
 $ErrorActionPreference = 'Stop'
@@ -25,7 +25,7 @@ if (-not $InnoCompiler -or -not (Test-Path -LiteralPath $InnoCompiler)) {
 $releaseDir = Join-Path $projectRoot "artifacts/releases/$Version"
 $publishDir = Join-Path $projectRoot ('artifacts/staging/' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $releaseDir, $publishDir | Out-Null
-& dotnet publish (Join-Path $projectRoot 'CyWinTask.csproj') -c Release -r win-x64 --self-contained true -o $publishDir "-p:Version=$Version" '-p:DebugType=None' '-p:DebugSymbols=false' '-p:PublishTrimmed=false' '-p:PublishSingleFile=false' '-p:RuntimeFrameworkVersion=8.0.31'
+& dotnet publish (Join-Path $projectRoot 'CyWinTask.csproj') -c Release -r win-x64 --self-contained true -o $publishDir "-p:Version=$Version" "-p:PathMap=$projectRoot=/_/CyWinTask" '-p:DebugType=None' '-p:DebugSymbols=false' '-p:PublishTrimmed=false' '-p:PublishSingleFile=false' '-p:RuntimeFrameworkVersion=8.0.31'
 if ($LASTEXITCODE -ne 0) { throw 'Publication .NET en échec.' }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $publishDir 'LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $publishDir
@@ -52,8 +52,12 @@ foreach ($package in @('microsoft.netcore.app.runtime.win-x64', 'microsoft.windo
 }
 $unexpected = @(Get-ChildItem $publishDir -Recurse -File | Where-Object { $_.Name -match 'diagnostics\.json$|^preview.*\.png$|\.pdb$|\.pfx$|^\.env' })
 if ($unexpected.Count) { throw 'Fichiers locaux inattendus dans la publication.' }
+& python (Join-Path $projectRoot 'scripts/check-distribution-privacy.py') $publishDir
+if ($LASTEXITCODE -ne 0) { throw 'Distribution privacy check failed.' }
 $zipPath = Join-Path $releaseDir "CyWinTask-$Version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zipPath -CompressionLevel Optimal -Force
+& python (Join-Path $projectRoot 'scripts/check-distribution-privacy.py') $zipPath
+if ($LASTEXITCODE -ne 0) { throw 'ZIP privacy check failed.' }
 & $InnoCompiler "/DAppVersion=$Version" "/DPublishDir=$publishDir" "/DReleaseDir=$releaseDir" (Join-Path $PSScriptRoot 'CyWinTask.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Compilation Inno Setup en échec.' }
 $setupPath = Join-Path $releaseDir "CyWinTask-$Version-win-x64-setup.exe"
