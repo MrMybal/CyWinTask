@@ -48,3 +48,7 @@ Desktop.ini
 .DS_Store
 *.tmp
 *.bak
+
+# Private local data and diagnostic outputs
+/.openai/hosting.json
+*.binlog
