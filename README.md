@@ -95,6 +95,21 @@ La sélection utilise un fond violet et un contour doré, distincts du cadre ble
 
 Le dépôt contient les sources, les tests et le logo final dans `Assets/cywintask-logo-blue.png`. Les sorties de compilation (`bin`, `obj`, `dist`), les réglages personnels des IDE, les historiques locaux des outils, les diagnostics et les captures `preview*.png` restent locaux grâce au `.gitignore`.
 
-Les tests peuvent enregistrer des noms de processus, des PID, des chemins et des caractéristiques de la machine dans les diagnostics ou captures. Vérifier et anonymiser ces fichiers avant de les joindre volontairement à une issue. Ne pas publier de secrets ni de certificats privés ; les exclusions Git ne remplacent pas une revue des nouveaux fichiers.
+Les tests peuvent enregistrer des noms de processus, des PID, des chemins et des caractéristiques de la machine dans les diagnostics ou captures. Ne jamais publier ces fichiers réels : utiliser uniquement des données fictives pour les démonstrations et captures partagées. Ne pas publier de secrets ni de certificats privés ; les exclusions Git ne remplacent pas une revue des nouveaux fichiers.
 
 Avant un commit, contrôler `git status --short` et `git diff --cached`. Pour consulter les fichiers non suivis qui seraient inclus, utiliser `git ls-files --others --exclude-standard`. Le `.gitignore` ne retire pas les fichiers déjà suivis.
+
+## Binaires Windows x64
+
+Les distributions autonomes incluent .NET Desktop : aucune installation séparée du runtime n’est nécessaire.
+
+- **Portable** : extraire tout le ZIP puis lancer `CyWinTask.exe`. Conserver tous les fichiers du dossier extrait.
+- **Installateur** : installation pour le compte courant dans `%LOCALAPPDATA%\Programs\CyWinTask`, raccourci du menu Démarrer et raccourci bureau facultatif. Désinstallation via les paramètres Windows.
+
+Pour fabriquer les deux distributions, utiliser le SDK .NET 8 ou supérieur et [Inno Setup 6](https://jrsoftware.org/isdl.php) :
+
+```powershell
+powershell -NoProfile -File packaging/Build-Release.ps1 -Version 0.5.2 -InnoCompiler "C:\chemin\vers\ISCC.exe"
+```
+
+Les livrables et leurs empreintes SHA-256 sont placés dans `artifacts/releases/0.5.2/`. Ce dossier est ignoré par Git ; les binaires sont destinés aux pièces jointes des versions GitHub (Releases). Le script utilise un dossier de publication neuf à chaque exécution pour éviter d’intégrer des fichiers provenant d’une ancienne compilation. Les binaires ne sont pas signés avec un certificat de signature de code.
