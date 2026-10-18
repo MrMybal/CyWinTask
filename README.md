@@ -1,46 +1,81 @@
 # CyWinTask
 
-Application native Windows x64 en C# / WPF (.NET 8).
+**English** · [Français](README.fr.md)
 
-## Démarrage
+A native Windows x64 task manager built with C# / WPF (.NET 8).
 
-Lancer `dist\CyWinTask.exe`. Le runtime .NET Desktop 8 x64 est requis. Depuis les sources, installer le SDK .NET 8 sur Windows x64 puis utiliser les commandes de compilation ci-dessous pour générer le dossier `dist`. CyWinTask reste indépendant du gestionnaire Windows et ne modifie pas les raccourcis système.
+<a id="démarrage"></a>
 
-## Processus
+## Getting started
 
-- CPU, mémoire résidente, threads et handles ; tri par clic sur chacune des six colonnes (second clic pour inverser, flèche visible, valeurs numériques triées numériquement globalement par défaut, ou dans chaque groupe si le regroupement est activé) et recherche par nom ou PID (`Ctrl+F`).
-- Multisélection avec Ctrl et Maj ; arrêt avec confirmation et bilan des échecs. Identité validée par PID + date de création. Arrêt refusé pour CyWinTask lui-même et les processus critiques.
-- Icônes extraites des exécutables accessibles, chargées progressivement en arrière-plan et mises en cache. Symbole neutre si inaccessible ou sans icône.
-- Menu **Afficher** : tous les processus, Applications, arrière-plan ou Windows ; se combine avec la recherche. Case **Regrouper par type** facultative, désactivée au démarrage pour permettre un tri global.
-- Groupes Applications, Processus en arrière-plan et Processus Windows. Applications = processus possédant une fenêtre visible de premier niveau ; Windows = processus sans cette fenêtre et dont le chemin accessible est sous le dossier Windows, ainsi que System. Ce classement pratique ne reproduit pas exactement les règles internes de Task Manager ; un processus protégé peut rester en arrière-plan faute de chemin accessible.
-- Inspecteur : chemin, PID parent, date de lancement et compteurs au moment de son ouverture.
+Run `dist\CyWinTask.exe`. The .NET Desktop 8 x64 runtime is required. To build from source,
+install the .NET 8 SDK on Windows x64 and use the commands below to generate `dist`.
+CyWinTask runs independently of Windows Task Manager and does not change system shortcuts.
+
+<a id="processus"></a>
+
+## Processes
+
+- CPU, resident memory, threads and handles; click any of the six columns to sort (click again
+  to reverse, with a visible arrow). Numeric values sort numerically across all processes by
+  default, or within each group when grouping is enabled. Search by name or PID (`Ctrl+F`).
+- Ctrl/Shift multiselection; termination requires confirmation and reports failures. Identity
+  is checked using PID and creation time. CyWinTask itself and critical processes cannot be terminated.
+- Icons extracted from accessible executables, loaded progressively in the background and
+  cached. A neutral symbol appears when an icon is absent or inaccessible.
+- **View** menu: all processes, Applications, background or Windows, combined with search.
+  Optional **Group by type** is off at startup to allow global sorting.
+- Applications, Background processes and Windows processes groups. Applications have a visible
+  top-level window; Windows processes lack that window and have an accessible path under the
+  Windows folder, plus System. This practical classification does not exactly reproduce Task
+  Manager's internal rules; a protected process may remain in Background if its path is inaccessible.
+- Inspector: path, parent PID, launch time and counters as measured when opened.
 
 ## Performance
 
-Sélectionner **Performance**, puis une ressource dans la liste :
+Select **Performance**, then a resource in the list:
 
-- Processeur : charge totale et option pour afficher chaque processeur logique.
-- Mémoire : mémoire physique utilisée et disponible.
-- Disques physiques : temps actif, lecture et écriture.
-- Interfaces réseau : réception et envoi, y compris les interfaces virtuelles.
-- GPU : cartes identifiées par DXGI et associées aux compteurs par leur LUID ; 3D, copie, encodage, décodage, mémoire dédiée et partagée. Les autres moteurs sont accessibles par une case à cocher.
+- CPU: total load and an option to show each logical processor.
+- Memory: used and available physical memory.
+- Physical disks: active time, reads and writes.
+- Network interfaces: received and sent data, including virtual interfaces.
+- GPU: adapters identified through DXGI and matched to counters by LUID; 3D, copy, encode,
+  decode, dedicated and shared memory. Other engines are available through a checkbox.
 
-Historique réel de 60 secondes, sans remplissage artificiel du passé. Les trous de collecte restent des trous. Les taux utilisent au moins deux échantillons ; les premiers compteurs peuvent être indisponibles. Les échelles des pourcentages sont fixes à 100 %, celles des débits sont automatiques et indiquées sur chaque graphique. L’utilisation GPU correspond au moteur physique le plus occupé, après addition des contributions des processus sur un même moteur.
+A real 60-second history, without artificially filling the past. Collection gaps remain gaps.
+Rates need at least two samples, so initial counters may be unavailable. Percentage scales
+are fixed at 100%; throughput scales adjust automatically and are shown on each graph.
+GPU usage is the busiest physical engine, after summing process contributions on that engine.
 
-La disponibilité des compteurs GPU dépend du pilote. Un moteur non exposé est marqué indisponible. Températures, versions des pilotes, caractéristiques détaillées des disques, historique des applications, démarrage et services ne sont pas encore inclus. La détection des cartes graphiques est effectuée à la première ouverture de Performance ; relancer CyWinTask après un changement matériel GPU.
+GPU counter availability depends on the driver. An unexposed engine is marked unavailable.
+Temperatures, driver versions, detailed disk specifications, application history, startup
+and services are not included yet. GPU detection runs when Performance is first opened;
+restart CyWinTask after a GPU hardware change.
 
-## Coût et architecture
+<a id="coût-et-architecture"></a>
 
-- Collecte des processus groupée via NtQuerySystemInformation ; buffer natif réutilisé, sans WMI ni handle ouvert par processus à chaque rafraîchissement.
-- Collecte PDH native uniquement dans l’onglet Performance, query et buffers conservés. Pas de processus PowerShell ni de commande externe dans la boucle de l’application.
-- Une seule collecte en arrière-plan à la fois ; attente d’une seconde entre les cycles. Pause et minimisation suspendent la collecte.
-- Tableau à lignes virtualisées, notifications ciblées, filtre différé de 150 ms. Les six colonnes sont rendues ensemble pour assurer leur visibilité avec les groupes.
-- Extraction des métadonnées limitée à 32 nouveaux processus par cycle. Les chemins et icônes sont conservés pendant la vie de chaque processus.
-- Graphiques dessinés directement par WPF, sans animation ni contrôle individuel par point. Historique borné à 60 secondes, maximum 120 points par série.
+## Overhead and architecture
 
-`diagnostics.json` et `performance-diagnostics.json` contiennent des mesures locales du banc de test. Elles ne prouvent pas une supériorité sur le gestionnaire Windows. La mémoire de WPF et le coût de la première extraction des icônes restent à surveiller. Le temps de mise à jour affiché n’inclut pas tout le rendu différé.
+- Batched process collection through NtQuerySystemInformation, with a reused native buffer;
+  no WMI or per-process handle opened on every refresh.
+- Native PDH collection only in Performance; queries and buffers are retained. No PowerShell
+  process or external command runs in the application's collection loop.
+- One background collection at a time, with one second between cycles. Pausing and minimizing
+  suspend collection.
+- Virtualized table rows, targeted notifications and a 150 ms deferred filter. All six columns
+  render together to remain visible with groups.
+- Metadata extraction is limited to 32 new processes per cycle. Paths and icons are retained
+  for each process's lifetime.
+- Graphs drawn directly with WPF, without animations or individual controls per point.
+  History is limited to 60 seconds and 120 points per series.
 
-## Compilation et tests
+`diagnostics.json` and `performance-diagnostics.json` contain local test-bench measurements.
+They do not prove superiority over Windows Task Manager. WPF memory use and the initial icon
+extraction cost still need monitoring. Displayed update time excludes some deferred rendering.
+
+<a id="compilation-et-tests"></a>
+
+## Build and tests
 
 ```powershell
 dotnet build CyWinTask.csproj -c Release
@@ -48,70 +83,130 @@ dotnet run --project Tests/CyWinTask.Tests.csproj -c Release
 dotnet publish CyWinTask.csproj -c Release --no-restore -o dist
 ```
 
-Le test d’intégration est adapté au poste de développement équipé d’un GPU avec compteurs WDDM. Il vérifie les compteurs réels, le regroupement, les icônes, la recherche, les sélections, la navigation et l’arrêt d’un processus créé uniquement pour le test. Les assertions purement logiques couvrent l’agrégation des moteurs GPU et la limite de l’historique. Les aperçus sont enregistrés dans `preview.png` et `preview-performance.png`.
+The integration test is tailored to a development machine with a GPU exposing WDDM counters.
+It checks real counters, grouping, icons, search, selection, navigation and termination of a
+process created solely for the test. Logic assertions cover GPU engine aggregation and the
+history limit. Previews are saved as `preview.png` and `preview-performance.png`.
 
-## Limites techniques
+<a id="limites-techniques"></a>
 
-L’API native de processus utilise le format Windows x64, dont les limites de buffer sont vérifiées. Ce format peut évoluer. Les accès restent soumis aux permissions Windows ; aucune élévation automatique. La mémoire par processus est son working set total, et sa somme ne représente pas la mémoire physique utilisée. Les mesures de temps CPU peuvent différer de Task Manager ; le compteur de la vue Processus nécessite une validation supplémentaire au-delà de 64 processeurs logiques.
+## Technical limitations
 
-Références Microsoft :
+The native process API uses the Windows x64 format, with checked buffer bounds. This format
+may evolve. Access remains subject to Windows permissions; there is no automatic elevation.
+Per-process memory is its total working set; summing it does not give used physical memory.
+CPU-time measurements may differ from Task Manager. The Processes counter needs further
+validation above 64 logical processors.
+
+Microsoft references:
+
 - https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation
 - https://learn.microsoft.com/windows/win32/api/pdh/nf-pdh-pdhgetformattedcounterarrayw
 - https://learn.microsoft.com/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1
 
-Test ciblé du tri : `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --sorting`. Vérifie les deux sens sur les six en-têtes, les flèches, le tri dynamique et les sélections.
+Focused sorting test: `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --sorting`.
+Checks both directions on all six headers, arrows, dynamic sorting and selections.
 
-## Graphiques et repères visuels (version 0.3)
+<a id="graphiques-et-repères-visuels-version-03"></a>
 
-- Mémoire : graphique supplémentaire de mémoire virtuelle engagée et limite mesurée avec GetPerformanceInfo. Il représente les allocations garanties par Windows ; ce n’est pas le volume réellement présent dans les fichiers de pagination.
-- Disques : trois courbes superposées. Vert = activité (échelle gauche, 0–100 %), bleu = lecture, orange = écriture (échelle droite automatique commune en Mo/s). Une légende indique les valeurs courantes.
-- CPU : cocher **Afficher les processeurs logiques**, puis choisir **Compacte (Windows)** pour la grille de mini-graphiques, ou **Détaillée** pour les graphiques plus grands. Le total reste affiché dans le résumé. Les processeurs logiques sont ordonnés numériquement.
-- Processus : barres CPU et mémoire, valeurs toujours lisibles et tri numérique conservé. La largeur est proportionnelle à la capacité CPU totale ou à la RAM physique totale. La mémoire reste le working set ; les pages partagées peuvent être comptées dans plusieurs processus.
-- Couleurs CPU : bleu sous 5 %, jaune dès 5 %, orange dès 20 %, rouge dès 50 %. Couleurs RAM : bleu sous 1 %, jaune dès 1 %, orange dès 4 %, rouge dès 10 % de la RAM totale. Ces seuils sont des repères visuels, pas des diagnostics. Les infobulles rappellent ces seuils.
+## Graphs and visual indicators (version 0.3)
 
-Les graphiques et barres utilisent le dessin WPF direct, sans animations ni collecte supplémentaire par processus. Référence mémoire : https://learn.microsoft.com/windows/win32/api/psapi/ns-psapi-performance_information
+- Memory: an additional committed virtual memory graph and limit measured through
+  GetPerformanceInfo. It represents allocations guaranteed by Windows, not actual pagefile contents.
+- Disks: three overlaid curves. Green = activity (left axis, 0–100%), blue = reads, orange = writes
+  (shared automatic right axis in MB/s). A legend shows current values.
+- CPU: enable **Show logical processors**, then select **Compact (Windows)** for a grid of small
+  graphs or **Detailed** for larger graphs. The total remains in the summary. Logical processors
+  are ordered numerically.
+- Processes: CPU and memory bars with readable values and preserved numeric sorting. Width
+  is proportional to total CPU capacity or physical RAM. Memory remains the working set;
+  shared pages may be counted in several processes.
+- CPU colors: blue below 5%, yellow from 5%, orange from 20%, red from 50%.
+  RAM colors: blue below 1%, yellow from 1%, orange from 4%, red from 10% of total RAM.
+  These thresholds are visual guides, not diagnoses. Tooltips repeat them.
 
-## Processus associés (version 0.4)
+Graphs and bars use direct WPF drawing, with no animations or additional per-process collection.
+Memory reference: https://learn.microsoft.com/windows/win32/api/psapi/ns-psapi-performance_information
 
-Cocher **Processus associés** pour afficher une arborescence dépliable. Le nombre entre parenthèses compte les descendants ; les valeurs CPU, RAM, threads et handles restent celles de la ligne individuelle, sans addition des enfants. Cliquer sur le chevron pour déplier ou replier.
+<a id="processus-associés-version-04"></a>
 
-Les liens reposent sur le PID parent enregistré par Windows et les dates de création. Un parent disparu ou un PID réutilisé ne produit pas de rattachement à un nouveau processus. Les applications possédant une fenêtre visible démarrent leur propre branche pour éviter de toutes les ranger sous Explorer. Ce modèle ne reproduit pas les heuristiques internes de regroupement applicatif de Task Manager et ne regroupe pas arbitrairement les processus portant le même nom.
+## Related processes (version 0.4)
 
-La recherche conserve les ancêtres nécessaires pour situer un enfant et ouvre les branches correspondantes. Chercher un parent montre aussi ses descendants. Le repliage manuel reste possible pendant la recherche. Le filtre de type porte sur la racine de la branche : Applications inclut ainsi les processus de fond de ces applications. Le regroupement par type reste compatible.
+Enable **Related processes** to show an expandable tree. The parenthesized count includes
+descendants; CPU, RAM, thread and handle values remain those of the individual row, without
+adding children. Click the chevron to expand or collapse.
 
-Le tri agit entre les racines et entre les enfants du même parent. Décocher le mode associé rétablit le tri global. Les ouvertures sont conservées par PID et date de création, avec suppression des identités disparues. L’arrêt cible uniquement les lignes explicitement sélectionnées, jamais automatiquement les descendants cachés.
+Relationships use the parent PID recorded by Windows and creation times. A vanished parent
+or reused PID does not attach children to a new process. Applications with a visible window
+start their own branch, so they do not all appear under Explorer. This model does not reproduce
+Task Manager's internal application-grouping heuristics or arbitrarily group same-name processes.
 
-Tests dédiés : `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --tree`. Option de lancement : `dist\CyWinTask.exe --tree`.
+Search retains the ancestors needed to locate a child and opens matching branches. Searching
+for a parent also shows its descendants. Manual collapsing remains possible during search.
+The type filter applies to the branch root, so Applications also includes those applications'
+background processes. Grouping by type remains compatible.
 
-## Menu contextuel et sélection (version 0.5)
+Sorting applies between roots and between children sharing a parent. Disabling related mode
+restores global sorting. Expanded state is retained by PID and creation time, removing vanished
+identities. Termination targets only explicitly selected rows, never hidden descendants automatically.
 
-Clic droit sur une ligne : arrêter le processus ou les lignes sélectionnées avec confirmation, ouvrir les informations avancées, afficher le fichier dans Explorer, copier le chemin ou le nom/PID. Le clic droit sur une ligne déjà sélectionnée conserve la multisélection ; sur une autre ligne, il sélectionne uniquement cette ligne. Les actions d’arrêt et de fichier conservent la validation PID + date de création. Aucun arrêt implicite des enfants.
+Dedicated tests: `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --tree`.
+Launch option: `dist\CyWinTask.exe --tree`.
 
-La fenêtre avancée charge ses données en arrière-plan à la demande : chemin, version et éditeur déclarés dans le fichier, date de lancement, session, priorité, affinité, temps CPU, mémoires résidente/privée/virtuelle, threads, handles et jusqu’à 200 modules. C’est un instantané ; certains processus protégés limitent les informations disponibles. L’éditeur déclaré ne constitue pas une vérification de signature.
+<a id="menu-contextuel-et-sélection-version-05"></a>
 
-La sélection utilise un fond violet et un contour doré, distincts du cadre bleuté des branches. Test ciblé : `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --context`.
+## Context menu and selection (version 0.5)
 
-## Fichiers partagés sur GitHub
+Right-click a row to terminate the process or selected rows with confirmation, open advanced
+information, show the file in Explorer, or copy the path or name/PID. Right-clicking a selected
+row preserves multiselection; right-clicking another row selects only that row. Termination
+and file actions retain PID/creation-time validation. Children are never terminated implicitly.
 
-Le dépôt contient les sources, les tests et le logo final dans `Assets/cywintask-logo-blue.png`. Les sorties de compilation (`bin`, `obj`, `dist`), les réglages personnels des IDE, les historiques locaux des outils, les diagnostics et les captures `preview*.png` restent locaux grâce au `.gitignore`.
+The advanced window loads data in the background on demand: path, version and publisher declared
+in the file, launch time, session, priority, affinity, CPU time, resident/private/virtual memory,
+threads, handles and up to 200 modules. It is a snapshot; protected processes may restrict
+available information. The declared publisher is not signature verification.
 
-Les tests peuvent enregistrer des noms de processus, des PID, des chemins et des caractéristiques de la machine dans les diagnostics ou captures. Ne jamais publier ces fichiers réels : utiliser uniquement des données fictives pour les démonstrations et captures partagées. Ne pas publier de secrets ni de certificats privés ; les exclusions Git ne remplacent pas une revue des nouveaux fichiers.
+Selection uses a purple background and gold outline, distinct from the blue branch frame.
+Focused test: `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release -- --context`.
 
-Avant un commit, contrôler `git status --short` et `git diff --cached`. Pour consulter les fichiers non suivis qui seraient inclus, utiliser `git ls-files --others --exclude-standard`. Le `.gitignore` ne retire pas les fichiers déjà suivis.
+<a id="fichiers-partagés-sur-github"></a>
 
-## Binaires Windows x64
+## Files shared on GitHub
 
-Les distributions autonomes incluent .NET Desktop : aucune installation séparée du runtime n’est nécessaire.
+The repository contains sources, tests and the final logo at `Assets/cywintask-logo-blue.png`.
+Build outputs (`bin`, `obj`, `dist`), personal IDE settings, local tool histories, diagnostics
+and `preview*.png` screenshots remain local through `.gitignore`.
 
-- **Portable** : extraire tout le ZIP puis lancer `CyWinTask.exe`. Conserver tous les fichiers du dossier extrait.
-- **Installateur** : installation pour le compte courant dans `%LOCALAPPDATA%\Programs\CyWinTask`, raccourci du menu Démarrer et raccourci bureau facultatif. Désinstallation via les paramètres Windows.
+Tests may record process names, PIDs, paths and machine specifications in diagnostics or
+screenshots. Never publish those real files: use only fictional data for shared demonstrations
+and screenshots. Do not publish secrets or private certificates; Git exclusions do not replace
+reviewing new files.
 
-Pour fabriquer les deux distributions, utiliser le SDK .NET 8 ou supérieur et [Inno Setup 6](https://jrsoftware.org/isdl.php) :
+Before committing, check `git status --short` and `git diff --cached`. To inspect untracked
+files that would be included, use `git ls-files --others --exclude-standard`.
+`.gitignore` does not remove files already tracked.
+
+<a id="binaires-windows-x64"></a>
+
+## Windows x64 binaries
+
+Self-contained distributions include .NET Desktop; no separate runtime installation is needed.
+
+- **Portable**: extract the entire ZIP and run `CyWinTask.exe`. Keep all files in the extracted folder.
+- **Installer**: per-user installation in `%LOCALAPPDATA%\Programs\CyWinTask`, with a Start menu
+  shortcut and optional desktop shortcut. Uninstall through Windows Settings.
+
+To build both distributions, use the .NET 8 SDK or newer and [Inno Setup 6](https://jrsoftware.org/isdl.php):
 
 ```powershell
-powershell -NoProfile -File packaging/Build-Release.ps1 -Version 0.5.3 -InnoCompiler "C:\chemin\vers\ISCC.exe"
+powershell -NoProfile -File packaging/Build-Release.ps1 -Version 0.5.3 -InnoCompiler "C:\path\to\ISCC.exe"
 ```
 
-Les livrables et leurs empreintes SHA-256 sont placés dans `artifacts/releases/0.5.3/`. Ce dossier est ignoré par Git ; les binaires sont destinés aux pièces jointes des versions GitHub (Releases). Le script utilise un dossier de publication neuf à chaque exécution pour éviter d’intégrer des fichiers provenant d’une ancienne compilation. Les binaires ne sont pas signés avec un certificat de signature de code.
+Deliverables and SHA-256 hashes are written to `artifacts/releases/0.5.3/`. Git ignores this folder;
+the binaries are intended as GitHub Release attachments. The script uses a fresh publish folder
+on each run to avoid including files from an older build. Binaries are not code-signed.
 
-Avant publication, contrôler le dossier distribué et le ZIP avec `python scripts/check-distribution-privacy.py <dossier-ou-zip>`. Vérifier également les fichiers réellement installés. Les tests de cet audit utilisent uniquement des données fictives : `python Tests/test_distribution_privacy.py`.
+Before publishing, check the distribution folder and ZIP with
+`python scripts/check-distribution-privacy.py <folder-or-zip>`. Also check the actual installed files.
+The audit's tests use only fictional data: `python Tests/test_distribution_privacy.py`.
