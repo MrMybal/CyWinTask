@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <Compile Include="..\ProcessSampler.cs" Link="ProcessSampler.cs" />
+    <Compile Include="..\PerformanceCollector.cs" Link="PerformanceCollector.cs" />
+    <Compile Include="..\CommitMemory.cs" Link="CommitMemory.cs" />
+    <Compile Include="..\TemperatureCollector.cs" Link="TemperatureCollector.cs" />
+    <Compile Include="BridgeProgram.cs" />
+    <Compile Include="BridgeMetadata.cs" />
+  </ItemGroup>
+</Project>

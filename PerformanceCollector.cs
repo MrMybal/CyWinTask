@@ -15,6 +15,8 @@ public sealed class PerformanceCollector : IDisposable
     private readonly Dictionary<string, Counter> counters = new();
     private readonly List<GpuAdapter> adapters;
     private readonly string processorName;
+    private readonly CpuTemperatureSource cpuTemperature = new();
+    private NvidiaTemperatureSource? gpuTemperature;
     public PerformanceCollector()
     {
         if (PdhOpenQuery(null, IntPtr.Zero, out query) != 0) throw new InvalidOperationException("Compteurs Windows indisponibles.");
@@ -30,6 +32,7 @@ public sealed class PerformanceCollector : IDisposable
             Add("dedicated", @"\GPU Adapter Memory(*)\Dedicated Usage");
             Add("shared", @"\GPU Adapter Memory(*)\Shared Usage");
             adapters = GpuAdapter.Enumerate();
+            gpuTemperature = new NvidiaTemperatureSource(adapters);
             using var key = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\0");
             processorName = key?.GetValue("ProcessorNameString")?.ToString()?.Trim() ?? "Processeur";
             PdhCollectQueryData(query);
@@ -49,7 +52,7 @@ public sealed class PerformanceCollector : IDisposable
         double? Get(string key, string instance) => data[key].TryGetValue(instance, out double v) ? v : null;
         var devices = new List<PerfDevice>();
         double? cpu = Get("cpu", "_Total") ?? system.Cpu;
-        var cpuMetrics = new List<PerfMetric> { new("cpu", "Utilisation totale", cpu, "%", 100) };
+        var cpuMetrics = new List<PerfMetric> { new("cpu", "Utilisation totale", cpu, "%", 100), new("temperature", "Température CPU", cpuTemperature.Read(DateTime.UtcNow), "°C") };
         foreach (var entry in data["cpu"].Where(x => !x.Key.Contains("_Total")).OrderBy(x => int.TryParse(x.Key.Split(',')[0], out var g) ? g : 0).ThenBy(x => int.TryParse(x.Key.Split(',').Last(), out var c) ? c : 0))
             cpuMetrics.Add(new("core:" + entry.Key, "Processeur logique " + entry.Key, Math.Clamp(entry.Value, 0, 100), "%", 100));
         devices.Add(new("cpu", "Processeur", processorName + $" · {Environment.ProcessorCount} processeurs logiques", "cpu", cpuMetrics));
@@ -74,7 +77,7 @@ public sealed class PerformanceCollector : IDisposable
                 var values = data[key].Where(x => x.Key.StartsWith(adapter.Id, StringComparison.OrdinalIgnoreCase)).ToArray();
                 return values.Length == 0 ? null : values.Sum(x => x.Value) / 1073741824;
             }
-            var metrics = new List<PerfMetric> { new("usage", "Utilisation · moteur le plus actif", usage, "%", 100) };
+            var metrics = new List<PerfMetric> { new("usage", "Utilisation · moteur le plus actif", usage, "%", 100), new("temperature", "Température GPU", gpuTemperature?.Read(adapter.Id) ?? cpuTemperature.ReadGpu(adapter, adapters), "°C") };
             var types = new[] { "3D", "Copy", "VideoEncode", "VideoDecode" }.Concat(matching.Select(e => e.Key.Split('/')[2])).Distinct(StringComparer.OrdinalIgnoreCase);
             foreach (string type in types)
             {
@@ -100,7 +103,7 @@ public sealed class PerformanceCollector : IDisposable
         }
         return result;
     }
-    public void Dispose() { foreach (var counter in counters.Values) counter.Dispose(); if (query != IntPtr.Zero) PdhCloseQuery(query); }
+    public void Dispose() { gpuTemperature?.Dispose(); foreach (var counter in counters.Values) counter.Dispose(); if (query != IntPtr.Zero) PdhCloseQuery(query); }
     private sealed class Counter(IntPtr handle, uint added) : IDisposable
     {
         private IntPtr buffer;

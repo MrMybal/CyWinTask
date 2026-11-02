@@ -1,21 +1,128 @@
-<Application x:Class="CyWinTask.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><Application.Resources>
-<Style TargetType="TextBlock"><Setter Property="Foreground" Value="#EAEAF0"/></Style>
-<Style TargetType="Button"><Setter Property="Background" Value="#34343B"/><Setter Property="Foreground" Value="#EEEEF4"/><Setter Property="Padding" Value="15,8"/><Setter Property="Margin" Value="4"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#454550"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#81DDEA"/><Setter TargetName="Chrome" Property="BorderThickness" Value="1"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
-<Style TargetType="TextBox"><Setter Property="Background" Value="#292930"/><Setter Property="Foreground" Value="#F0F0F6"/><Setter Property="CaretBrush" Value="White"/><Setter Property="BorderBrush" Value="#454550"/><Setter Property="Padding" Value="12,9"/></Style>
-<Style TargetType="DataGridColumnHeader">
-<Setter Property="Background" Value="#27272D"/><Setter Property="Foreground" Value="#BDBDC8"/><Setter Property="Padding" Value="10,12"/><Setter Property="BorderBrush" Value="#34343C"/><Setter Property="BorderThickness" Value="0,0,1,1"/><Setter Property="Cursor" Value="Hand"/>
-<Setter Property="ToolTip" Value="Cliquer pour trier · recliquer pour inverser · tri global ou dans les groupes affichés"/>
-<Setter Property="ContentTemplate"><Setter.Value><DataTemplate><DockPanel LastChildFill="True">
-<TextBlock DockPanel.Dock="Right" Width="14" HorizontalAlignment="Right" Foreground="#85DEEF" FontSize="10" VerticalAlignment="Center">
-<TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value=""/><Style.Triggers>
-<DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource AncestorType=DataGridColumnHeader}}" Value="Ascending"><Setter Property="Text" Value="▲"/></DataTrigger>
-<DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource AncestorType=DataGridColumnHeader}}" Value="Descending"><Setter Property="Text" Value="▼"/></DataTrigger>
-</Style.Triggers></Style></TextBlock.Style></TextBlock>
-<TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/>
-</DockPanel></DataTemplate></Setter.Value></Setter>
-<Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#363640"/></Trigger></Style.Triggers>
-</Style>
-<Style TargetType="DataGridCell"><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="12,7"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell"><Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Setter.Value></Setter><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="White"/></Trigger></Style.Triggers></Style>
-<Style TargetType="MenuItem">
-<Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem"><Border x:Name="MenuSurface" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="4"><ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/></Border><ControlTemplate.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="MenuSurface" Property="Background" Value="#624694"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
-</Style><Style TargetType="ContextMenu"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" CornerRadius="5"><ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/></ScrollViewer></Border></ControlTemplate></Setter.Value></Setter></Style></Application.Resources></Application>
+<Application x:Class="CyWinTask.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="CyUiTheme.xaml"/></ResourceDictionary.MergedDictionaries>
+      <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource CyText}"/></Style>
+      <Style TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource CyBg3}"/><Setter Property="Foreground" Value="{StaticResource CyText}"/><Setter Property="BorderBrush" Value="{StaticResource CyLineStrong}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="13,8"/><Setter Property="Margin" Value="4,0"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{StaticResource CyBg4}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource CyAccentHover}"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{StaticResource CyBg5}"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource CyAccent}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style x:Key="CyNavButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="Padding" Value="13,10"/><Setter Property="Background" Value="{StaticResource CyBg3}"/><Setter Property="BorderBrush" Value="{StaticResource CyLineStrong}"/><Setter Property="BorderThickness" Value="1"/></Style>
+      <Style x:Key="CyDangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="{StaticResource CyErrorDim}"/><Setter Property="BorderBrush" Value="{StaticResource CyError}"/><Setter Property="Foreground" Value="{StaticResource CyText}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+          <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{StaticResource CyErrorHover}"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="TextBox">
+        <Setter Property="Background" Value="{StaticResource CyBg3}"/><Setter Property="Foreground" Value="{StaticResource CyText}"/><Setter Property="CaretBrush" Value="{StaticResource CyAccentHover}"/><Setter Property="BorderBrush" Value="{StaticResource CyLineStrong}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,9"/>
+        <Style.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{StaticResource CyAccent}"/><Setter Property="BorderThickness" Value="2"/></Trigger></Style.Triggers>
+      </Style>
+      <Style TargetType="ComboBox">
+        <Setter Property="Background" Value="{StaticResource CyBg3}"/><Setter Property="Foreground" Value="{StaticResource CyText}"/><Setter Property="BorderBrush" Value="{StaticResource CyLineStrong}"/><Setter Property="Padding" Value="10,7"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
+              <DockPanel Margin="{TemplateBinding Padding}">
+                <Path DockPanel.Dock="Right" Data="M 0 0 L 4 4 L 8 0" Stroke="{StaticResource CyTextDim}" StrokeThickness="1.5" Width="9" Height="5" Margin="10,0,2,0" VerticalAlignment="Center"/>
+                <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" VerticalAlignment="Center" IsHitTestVisible="False"/>
+              </DockPanel>
+            </Border>
+            <ToggleButton Focusable="False" Background="Transparent" BorderThickness="0" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+              <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"/></ControlTemplate></ToggleButton.Template>
+            </ToggleButton>
+            <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" PopupAnimation="Fade">
+              <Border Background="{StaticResource CyBg2}" BorderBrush="{StaticResource CyLineStrong}" BorderThickness="1" CornerRadius="5" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="300">
+                <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto"><ItemsPresenter/></ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource CyAccentHover}"/></Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource CyAccent}"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource CyText}"/><Setter Property="Padding" Value="10,7"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+          <Border x:Name="Item" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Item" Property="Background" Value="{StaticResource CyBg4}"/></Trigger>
+            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Item" Property="Background" Value="{StaticResource CyAccentDim}"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource CyText}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <Border x:Name="Box" Width="15" Height="15" Background="{StaticResource CyBg3}" BorderBrush="{StaticResource CyLineStrong}" BorderThickness="1" CornerRadius="3" VerticalAlignment="Center">
+              <TextBlock x:Name="Tick" Text="✓" Foreground="{StaticResource CyAccentText}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+            </Border>
+            <ContentPresenter Margin="7,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+          </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Box" Property="Background" Value="{StaticResource CyAccent}"/><Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource CyAccent}"/><Setter TargetName="Tick" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource CyAccentHover}"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Box" Property="BorderThickness" Value="2"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.48"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="ScrollBar">
+        <Setter Property="Width" Value="11"/><Setter Property="Background" Value="{StaticResource CyBg0}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+          <Grid Background="{TemplateBinding Background}">
+            <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" IsDirectionReversed="True" Margin="2,0">
+              <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False" Opacity="0"/></Track.DecreaseRepeatButton>
+              <Track.Thumb><Thumb x:Name="Thumb">
+                <Thumb.Template><ControlTemplate TargetType="Thumb"><Border x:Name="Grip" Background="{StaticResource CyBg5}" CornerRadius="4" Margin="0,2"/><ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Background" Value="{StaticResource CyAccentDim}"/></Trigger>
+                  <Trigger Property="IsDragging" Value="True"><Setter TargetName="Grip" Property="Background" Value="{StaticResource CyAccent}"/></Trigger>
+                </ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
+              </Thumb></Track.Thumb>
+              <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False" Opacity="0"/></Track.IncreaseRepeatButton>
+            </Track>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal"><Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/><Setter TargetName="PART_Track" Property="Margin" Value="0,2"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate></Setter.Value></Setter>
+        <Style.Triggers><Trigger Property="Orientation" Value="Horizontal"><Setter Property="Width" Value="Auto"/><Setter Property="Height" Value="11"/></Trigger></Style.Triggers>
+      </Style>
+      <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource CyBg2}"/><Setter Property="Foreground" Value="{StaticResource CyTextDim}"/><Setter Property="Padding" Value="10,11"/><Setter Property="BorderBrush" Value="{StaticResource CyLineStrong}"/><Setter Property="BorderThickness" Value="0,0,1,1"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="ToolTip" Value="Cliquer pour trier · recliquer pour inverser"/>
+        <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><DockPanel LastChildFill="True">
+          <TextBlock DockPanel.Dock="Right" Width="14" HorizontalAlignment="Right" Foreground="{StaticResource CyAccent}" FontSize="10" VerticalAlignment="Center">
+            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value=""/><Style.Triggers>
+              <DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource AncestorType=DataGridColumnHeader}}" Value="Ascending"><Setter Property="Text" Value="▲"/></DataTrigger>
+              <DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource AncestorType=DataGridColumnHeader}}" Value="Descending"><Setter Property="Text" Value="▼"/></DataTrigger>
+            </Style.Triggers></Style></TextBlock.Style>
+          </TextBlock><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/>
+        </DockPanel></DataTemplate></Setter.Value></Setter>
+        <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource CyBg4}"/></Trigger></Style.Triggers>
+      </Style>
+      <Style TargetType="DataGridCell"><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="12,7"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="DataGridCell"><Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center"/></Border></ControlTemplate></Setter.Value></Setter><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{StaticResource CyAccentText}"/></Trigger></Style.Triggers></Style>
+      <Style TargetType="MenuItem"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem"><Border x:Name="MenuSurface" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="4"><ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/></Border><ControlTemplate.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="MenuSurface" Property="Background" Value="{StaticResource CyAccentDim}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+      <Style TargetType="ContextMenu"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" CornerRadius="5"><ScrollViewer CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/></ScrollViewer></Border></ControlTemplate></Setter.Value></Setter></Style>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

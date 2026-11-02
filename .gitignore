@@ -2,7 +2,11 @@
 [Bb]in/
 [Oo]bj/
 /dist/
+/dist-native/
 /artifacts/
+/native/build/
+/native/build-ninja/
+/third_party/CyUI/
 TestResults/
 coverage/
 *.coverage

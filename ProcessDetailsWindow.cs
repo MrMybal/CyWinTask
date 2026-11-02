@@ -9,14 +9,25 @@ public sealed class ProcessDetailsWindow : Window
     public ProcessDetailsWindow(ProcessSample sample)
     {
         Title = $"Informations avancées — {sample.Name} ({sample.Id})";
-        Width=850; Height=650; MinWidth=580; MinHeight=400; Background=new SolidColorBrush(Color.FromRgb(25,25,31));
+        Width=850; Height=650; MinWidth=580; MinHeight=400;
+        Background=UiTheme.Brush("Bg1"); Foreground=UiTheme.Brush("Text");
         WindowStartupLocation=WindowStartupLocation.CenterOwner;
         var dock=new DockPanel { Margin=new Thickness(22) };
-        var header=new TextBlock { Text=$"{sample.Name} · PID {sample.Id}",FontSize=24,Margin=new Thickness(0,0,0,12) };
+        var header=new DockPanel { Margin=new Thickness(0,0,0,15) };
+        var text=new TextBox { Text="Lecture des informations…",IsReadOnly=true,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,
+            VerticalScrollBarVisibility=ScrollBarVisibility.Auto,FontFamily=new FontFamily("Consolas"),FontSize=13,
+            Background=UiTheme.Brush("Bg2"),BorderBrush=UiTheme.Brush("LineStrong"),BorderThickness=new Thickness(1),
+            Padding=new Thickness(14) };
+        var close=new Button { Content="Fermer" };
+        close.Click+=(_,_)=>Close();
+        DockPanel.SetDock(close,Dock.Right); header.Children.Add(close);
+        var copy=new Button { Content="Copier tout", ToolTip="Copier toutes les informations affichées" };
+        copy.Click+=(_,_)=> { try { Clipboard.SetText(text.Text); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "Copie indisponible", MessageBoxButton.OK, MessageBoxImage.Information); } };
+        DockPanel.SetDock(copy,Dock.Right); header.Children.Add(copy);
+        header.Children.Add(new TextBlock { Text=$"{sample.Name} · PID {sample.Id}",FontSize=23,FontWeight=FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center });
         DockPanel.SetDock(header,Dock.Top); dock.Children.Add(header);
-        var footer=new TextBlock { Text="Instantané à l’ouverture · Ctrl+A / Ctrl+C pour copier · certains accès peuvent être protégés",Margin=new Thickness(0,12,0,0),TextWrapping=TextWrapping.Wrap };
+        var footer=new TextBlock { Text="Instantané à l’ouverture · certains accès peuvent être protégés",Margin=new Thickness(0,12,0,0),TextWrapping=TextWrapping.Wrap,Foreground=UiTheme.Brush("TextDim") };
         DockPanel.SetDock(footer,Dock.Bottom); dock.Children.Add(footer);
-        var text=new TextBox { Text="Lecture des informations…",IsReadOnly=true,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,FontFamily=new FontFamily("Consolas"),FontSize=13 };
         dock.Children.Add(text); Content=dock;
         Loaded+=async(_,_)=> { var report=await Task.Run(()=>ReadReport(sample)); if(IsVisible)text.Text=report; };
     }

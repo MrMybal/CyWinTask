@@ -25,9 +25,7 @@ public sealed class ProcessRow : INotifyPropertyChanged
     public System.Windows.Media.ImageSource? Icon { get; private set; }
     public string Category { get; private set; } = "Processus en arrière-plan";
     public void SetMetadata(ProcessMetadata info) { if (Icon != info.Icon) { Icon = info.Icon; Changed(nameof(Icon)); } if (Category != info.Category) { Category = info.Category; Changed(nameof(Category)); } }
-    private static readonly System.Windows.Media.Brush MemberFill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(32,46,55));
-    private static readonly System.Windows.Media.Brush RootFill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(48,70,81));
-    public System.Windows.Media.Brush BranchBackground => InBranch ? IsBranchRoot ? RootFill : MemberFill : System.Windows.Media.Brushes.Transparent;
+    public System.Windows.Media.Brush BranchBackground => InBranch ? IsBranchRoot ? UiTheme.Brush("BranchRoot") : UiTheme.Brush("Branch") : System.Windows.Media.Brushes.Transparent;
     public Thickness BranchBorder { get; private set; }
     public bool InBranch { get; private set; }
     public bool IsBranchRoot { get; private set; }
@@ -99,7 +97,7 @@ public partial class MainWindow : Window
         ProcessGrid.SizeChanged += (_, _) => ProcessGrid.Columns[0].Width = new System.Windows.Controls.DataGridLength(Math.Max(220, ProcessGrid.ActualWidth - 565)); ProcessGrid.ItemsSource = view; ProcessGrid.Columns[0].SortDirection = ListSortDirection.Ascending; PerformancePage.PauseRequested += (_, _) => Pause_Click(this, new RoutedEventArgs());
         searchDelay.Tick += (_, _) => { searchDelay.Stop(); query = Search.Text.Trim(); searchCollapsed.Clear(); if (treeEnabled) RebuildTree(); else view.Refresh(); UpdateEmpty(); };
         Loaded += async (_, _) => await RunAsync();
-        Closed += (_, _) => { stopping.Cancel(); searchDelay.Stop(); detailVersion++; };
+        Closed += (_, _) => { stopping.Cancel(); searchDelay.Stop(); detailVersion++; PerformancePage.CloseDetachedWindows(); };
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { ShowPerformance(false); Search.Focus(); Search.SelectAll(); e.Handled = true; }
@@ -115,25 +113,28 @@ public partial class MainWindow : Window
         {
             while (!stopping.IsCancellationRequested)
             {
-                if (!paused && WindowState != WindowState.Minimized)
+                if (!paused && (WindowState != WindowState.Minimized || PerformancePage.HasDetachedWindow))
                 {
                     try
                     {
-                        bool collectPerformance = performanceVisible;
+                        bool collectPerformance = performanceVisible || PerformancePage.HasDetachedWindow;
+                        bool collectProcesses = !performanceVisible && WindowState != WindowState.Minimized;
                         var result = await Task.Run(() =>
                         {
                             var system = sampler.Collect();
+                            PerfSnapshot? perf = null;
                             if (collectPerformance)
                             {
                                 performance ??= new PerformanceCollector();
-                                return (system, perf: performance.Collect(system), meta: (Dictionary<int, ProcessMetadata>?)null);
+                                perf = performance.Collect(system);
                             }
-                            return (system, perf: (PerfSnapshot?)null, meta: metadata.Collect(system.Processes));
+                            var meta = collectProcesses ? metadata.Collect(system.Processes) : null;
+                            return (system, perf, meta);
                         }, stopping.Token);
                         if (!stopping.IsCancellationRequested && !paused)
                         {
-                            if (result.perf != null && performanceVisible) PerformancePage.Apply(result.perf);
-                            else if (!performanceVisible && result.meta != null) Apply(result.system, result.meta);
+                            if (result.perf != null && collectPerformance) PerformancePage.Apply(result.perf);
+                            if (result.meta != null && !performanceVisible) Apply(result.system, result.meta);
                         }
                     }
                     catch (OperationCanceledException) { break; }
@@ -289,7 +290,16 @@ public partial class MainWindow : Window
             if (view.Contains(row) && !ProcessGrid.SelectedItems.Contains(row)) ProcessGrid.SelectedItems.Add(row);
         UpdateEmpty();
     }    public void ShowPerformance(bool show)
-    { performanceVisible = show; ProcessPage.Visibility = show ? Visibility.Collapsed : Visibility.Visible; PerformancePage.Visibility = show ? Visibility.Visible : Visibility.Collapsed; ProcessesTab.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(show ? "#34343B" : "#2B424A")!; PerformanceTab.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(show ? "#2B424A" : "#34343B")!; }
+    {
+        performanceVisible = show;
+        ProcessPage.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        PerformancePage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ProcessesTab.Background = UiTheme.Brush(show ? "Bg3" : "AccentDim");
+        PerformanceTab.Background = UiTheme.Brush(show ? "AccentDim" : "Bg3");
+        ProcessesTab.BorderBrush = UiTheme.Brush(show ? "LineStrong" : "Accent");
+        PerformanceTab.BorderBrush = UiTheme.Brush(show ? "Accent" : "LineStrong");
+        if (show) PerformancePage.RefreshVisible();
+    }
     private void Processes_Click(object sender, RoutedEventArgs e) => ShowPerformance(false);
     private void Performance_Click(object sender, RoutedEventArgs e) => ShowPerformance(true);
     private void UpdateEmpty() => EmptyLabel.Visibility = view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
@@ -304,6 +314,7 @@ public partial class MainWindow : Window
     {
         if (EndButton == null) return;
         EndButton.IsEnabled = !actionPending && ProcessGrid.SelectedItems.Count > 0;
+        InspectButton.IsEnabled = ProcessGrid.SelectedItem is ProcessRow;
         EndButton.Content = ProcessGrid.SelectedItems.Count > 1 ? $"Arrêter {ProcessGrid.SelectedItems.Count} tâches" : "Arrêter la tâche";
     }
     private void ProcessGrid_RightClick(object sender, MouseButtonEventArgs e)
@@ -329,10 +340,10 @@ public partial class MainWindow : Window
         var sample=target.Sample;
         var selected=ProcessGrid.SelectedItems.Cast<ProcessRow>().Select(r=>r.Sample).ToArray();
         if(!selected.Any(s=>s.Id==sample.Id && s.Created==sample.Created))selected=new[]{sample};
-        var menu=new System.Windows.Controls.ContextMenu { Background=new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(35,35,44)),Foreground=System.Windows.Media.Brushes.White,BorderBrush=System.Windows.Media.Brushes.MediumPurple,Padding=new Thickness(5) };
+        var menu=new System.Windows.Controls.ContextMenu { Background=UiTheme.Brush("Bg2"),Foreground=UiTheme.Brush("Text"),BorderBrush=UiTheme.Brush("LineStrong"),Padding=new Thickness(5) };
         void Item(string title,Action action,bool enabled=true)
         {
-            var item=new System.Windows.Controls.MenuItem { Header=title,IsEnabled=enabled,Foreground=System.Windows.Media.Brushes.White,Padding=new Thickness(12,7,12,7) };
+            var item=new System.Windows.Controls.MenuItem { Header=title,IsEnabled=enabled,Foreground=UiTheme.Brush("Text"),Padding=new Thickness(12,7,12,7) };
             item.Click+=(_,_)=>action(); menu.Items.Add(item);
         }
         Item($"{sample.Name} · PID {sample.Id}",()=>{},false);

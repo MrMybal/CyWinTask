@@ -28,6 +28,8 @@ internal static class Program
     }    [STAThread] static int Main(string[] args)
     {
         if (args.Contains("--context")) return ContextChecks.Run();
+        if (args.Contains("--graphs")) return GraphChecks.Run();
+        if (args.Contains("--ui")) return UiChecks.Run();
         if (args.Contains("--tree")) return TreeChecks.Run();
         if (args.Contains("--sorting")) return SortingChecks.Run();
         if (args.Contains("--child")) { Thread.Sleep(30000); return 0; }
@@ -90,8 +92,8 @@ internal static class Program
             }
             var committed = CommitMemory.Read(); Check(committed.Value > 0 && committed.Maximum >= committed.Value, "Memoire virtuelle engagee et limite reelles");
             var barRow = new ProcessRow(sample with { WorkingSet = 1073741824 }); barRow.SetMemoryCapacity(10737418240); Check(barRow.MemoryPercent == 10, "Barre RAM rapportee a la memoire physique totale");
-            Check(UsageCell.Heat(50,false) != UsageCell.Heat(1,false), "Couleurs de charge distinctes");
             var app = new App(); app.InitializeComponent();
+            Check(UsageCell.Heat(50,false) != UsageCell.Heat(1,false), "Couleurs de charge distinctes");
             var window = new MainWindow();
             Exception? uiError = null;
             window.Loaded += async (_, _) =>

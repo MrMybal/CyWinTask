@@ -5,7 +5,7 @@ namespace CyWinTask;
 public sealed class HistoryChart : FrameworkElement
 {
     public MetricHistory History { get; }
-    public Brush Accent { get; set; } = Brushes.LightSkyBlue;
+    public Brush Accent { get; set; } = UiTheme.Brush("Info");
     public List<(MetricHistory History, Brush Color)> AdditionalSeries { get; } = new();
     public IEnumerable<(MetricHistory History, Brush Color)> Series => new[] { (History, Accent) }.Concat(AdditionalSeries);
     public HistoryChart(MetricHistory history) { History = history; Height = 150; ClipToBounds = true; }
@@ -20,8 +20,8 @@ public sealed class HistoryChart : FrameworkElement
         base.OnRender(dc);
         double w = ActualWidth, h = ActualHeight;
         if (w < 4 || h < 4) return;
-        var grid = new Pen(new SolidColorBrush(Color.FromRgb(43, 59, 72)), 1);
-        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(27,32,39)), grid, new Rect(0,0,w,h));
+        var grid = new Pen(UiTheme.Brush("LineStrong"), 1);
+        dc.DrawRectangle(UiTheme.Brush("Bg2"), grid, new Rect(0,0,w,h));
         for(int i=1;i<12;i++) dc.DrawLine(grid,new(w*i/12,0),new(w*i/12,h));
         for(int i=1;i<5;i++) dc.DrawLine(grid,new(0,h*i/5),new(w,h*i/5));
         var all = Series.ToArray();
@@ -49,7 +49,7 @@ public sealed class HistoryChart : FrameworkElement
         var units=all.Select(s=>s.History.Metric.Unit).Distinct().ToArray();
         for(int i=0;i<units.Length;i++)
         {
-            var label=new FormattedText($"{Scale(units[i]):N1} {units[i]}",CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI"),10,Brushes.LightSlateGray,VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            var label=new FormattedText($"{Scale(units[i]):N1} {units[i]}",CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI"),10,UiTheme.Brush("TextFaint"),VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawText(label,new Point(units.Length>1 && i==0 ? 6 : Math.Max(0,w-label.Width-6),4));
         }
     }
@@ -66,7 +66,7 @@ public sealed class UsageCell : FrameworkElement
     public static Color Heat(double percent,bool memory)
     {
         double score=memory?percent*5:percent;
-        return score>=50?Color.FromRgb(248,111,106):score>=20?Color.FromRgb(245,174,82):score>=5?Color.FromRgb(230,202,102):Color.FromRgb(99,202,210);
+        return score>=50?UiTheme.Color("Error"):score>=20?UiTheme.Color("Network"):score>=5?UiTheme.Color("Warning"):UiTheme.Color("Info");
     }
     protected override void OnRender(DrawingContext dc)
     {
@@ -75,7 +75,7 @@ public sealed class UsageCell : FrameworkElement
         Color color=Heat(p,IsMemory);
         dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb((byte)(p>0?48:12),color.R,color.G,color.B)),null,new Rect(0,0,w,h),3,3);
         dc.DrawRectangle(new SolidColorBrush(color),null,new Rect(0,Math.Max(0,h-3),w*p/100,Math.Min(3,h)));
-        var text=new FormattedText(Label,CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI"),11,Brushes.White,VisualTreeHelper.GetDpi(this).PixelsPerDip){MaxTextWidth=Math.Max(1,w-8),Trimming=TextTrimming.CharacterEllipsis};
+        var text=new FormattedText(Label,CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI"),11,UiTheme.Brush("AccentText"),VisualTreeHelper.GetDpi(this).PixelsPerDip){MaxTextWidth=Math.Max(1,w-8),Trimming=TextTrimming.CharacterEllipsis};
         dc.DrawText(text,new Point(4,Math.Max(0,(h-text.Height)/2-1)));
     }
 }
