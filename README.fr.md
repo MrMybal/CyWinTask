@@ -4,6 +4,18 @@
 
 Gestionnaire de tâches Windows x64. L’interface actuelle utilise **Dear ImGui**, **CyUI** et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows par un flux local. L’ancienne interface WPF reste dans le dépôt pour référence, mais les nouvelles distributions lancent l’interface native.
 
+## Captures d’écran
+
+Ces captures proviennent du mode démonstration de CyWinTask, avec des processus et du matériel fictifs.
+
+**Processus** — tableau avec recherche, barres d’utilisation et groupes de processus associés repliables.
+
+![Tableau des processus de CyWinTask en mode démonstration](docs/screenshots/processes.png)
+
+**Performance** — graphiques compacts du CPU, de la mémoire, du GPU, des disques et du réseau.
+
+![Tableau de bord Performance de CyWinTask en mode démonstration](docs/screenshots/performance.png)
+
 ## Démarrage et compilation
 
 Depuis les sources, installer le SDK .NET 8 et Visual Studio 2022 avec les outils C++. CyUI est actuellement un dépôt privé : les personnes autorisées doivent récupérer sa révision figée avant de compiler. La commande suivante crée ensuite un dossier autonome `dist-native` :

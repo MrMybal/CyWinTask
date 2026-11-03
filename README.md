@@ -4,6 +4,18 @@
 
 A Windows x64 task manager with a native **Dear ImGui**, **CyUI**, and Direct3D 11 interface. A separate .NET 8 collector supplies Windows measurements over a local stream. The earlier WPF interface remains in the repository for reference; current distributions launch the native interface.
 
+## Screenshots
+
+These screenshots were captured from CyWinTask's demo mode with fictional process and hardware data.
+
+**Processes** — searchable table, usage bars, and expandable related-process groups.
+
+![CyWinTask process table in demo mode](docs/screenshots/processes.png)
+
+**Performance** — compact CPU, memory, GPU, disk, and network graphs.
+
+![CyWinTask performance dashboard in demo mode](docs/screenshots/performance.png)
+
 ## Build and run
 
 Install the .NET 8 SDK and Visual Studio 2022 with C++ tools. CyUI is currently a private repository. Contributors with access must fetch the pinned revision before building:
