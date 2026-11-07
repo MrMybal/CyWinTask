@@ -36,7 +36,7 @@ La page **Performance** affiche le CPU, la mémoire physique et virtuelle engag�
 
 [![Tableau des processus CyWinTask avec groupes de processus associés et données fictives](docs/screenshots/processes.png)](docs/screenshots/processes.png)
 
-Les deux captures proviennent directement du mode `--demo` de CyWinTask, avec des processus et des valeurs matérielles fictifs.
+Les deux captures proviennent directement de la version de développement actuelle en mode `--demo`, avec des processus et des valeurs matérielles fictifs. Le téléchargement 0.7.0 peut présenter une interface différente.
 
 ## Fonctionnalités
 

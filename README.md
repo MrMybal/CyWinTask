@@ -36,7 +36,7 @@ The **Performance** page shows CPU, physical and committed virtual memory, disks
 
 [![CyWinTask process table with expandable related-process groups and fictional demo data](docs/screenshots/processes.png)](docs/screenshots/processes.png)
 
-Both screenshots were captured directly from CyWinTask's `--demo` mode with fictional processes and hardware values.
+Both screenshots were captured directly from the current development build in CyWinTask's `--demo` mode with fictional processes and hardware values. The published 0.7.0 download may look different.
 
 ## Features
 
