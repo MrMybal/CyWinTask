@@ -1,84 +1,100 @@
-# CyWinTask
+<table width="100%">
+  <tr>
+    <td width="30%" align="left" valign="top">
+      <a href="https://github.com/MrMybal/CyWinTask">Dépôt</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/issues">Problèmes</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/releases">Versions publiées</a><br><br>
+      <sub>README</sub><br>
+      <a href="README.md">English</a> · <a href="README.fr.md">Français</a>
+    </td>
+    <td width="40%" align="center" valign="middle">
+      <img src="Assets/cywintask-logo-transparent.png" alt="Logo de CyWinTask" width="100">
+    </td>
+    <td width="30%" align="right" valign="top">
+      <p><sub>Licence de l’application</sub><br><a href="LICENSE"><strong>GNU AGPL v3.0</strong></a></p>
+      <p><sub>Version</sub><br><a href="VERSION.fr.md"><strong>0.7.0</strong></a><br><strong>EN DÉVELOPPEMENT</strong></p>
+      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe"><strong>Installateur</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip"><strong>ZIP portable</strong></a><br><sub>Windows x64</sub></p>
+    </td>
+  </tr>
+</table>
 
-[English](README.md) · **Français**
+<h1 align="center">CyWinTask</h1>
 
-Gestionnaire de tâches Windows x64. L’interface actuelle utilise **Dear ImGui**, **CyUI** et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows par un flux local. L’ancienne interface WPF reste dans le dépôt pour référence, mais les nouvelles distributions lancent l’interface native.
+CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processus et suivre l’activité du système en temps réel. L’interface distribuée utilise Dear ImGui, CyUI et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows.
 
-## Captures d’écran
+> **EN DÉVELOPPEMENT · 0.7.0**
+>
+> La version native Windows est disponible pour les essais et l’analyse. Certaines fonctions du Gestionnaire de tâches restent à développer ; consulter les [notes de version et limites connues](VERSION.fr.md).
 
-Ces captures proviennent du mode démonstration de CyWinTask, avec des processus et du matériel fictifs.
+[![Tableau de bord Performance de CyWinTask avec graphiques CPU, mémoire, GPU, disque et réseau et données fictives](docs/screenshots/performance.png)](docs/screenshots/performance.png)
 
-**Processus** — tableau avec recherche, barres d’utilisation et groupes de processus associés repliables.
+## L’application
 
-![Tableau des processus de CyWinTask en mode démonstration](docs/screenshots/processes.png)
+La page **Processus** recherche par nom ou PID, trie chaque colonne, filtre ou regroupe les types de processus et déplie les relations parent/enfants. Sélectionner plusieurs lignes avec Ctrl ou Maj pour consulter les détails ou utiliser les actions du clic droit. Les barres CPU et mémoire montrent la charge relative ; les icônes apparaissent quand elles sont accessibles. L’arrêt demande confirmation et vérifie de nouveau l’identité du processus. Les enfants ne sont pas arrêtés implicitement.
 
-**Performance** — graphiques compacts du CPU, de la mémoire, du GPU, des disques et du réseau.
+La page **Performance** affiche le CPU, la mémoire physique et virtuelle engagée, les disques, le réseau et le GPU. La vue graphiques rassemble plusieurs ressources à l’écran, avec grilles, échelles, repères temporels et valeurs au survol. On peut passer à une vue détaillée ou ouvrir le tableau de bord, voire un seul graphique, dans une fenêtre séparée. Les températures CPU et GPU apparaissent uniquement si un capteur compatible les fournit.
 
-![Tableau de bord Performance de CyWinTask en mode démonstration](docs/screenshots/performance.png)
+[![Tableau des processus CyWinTask avec groupes de processus associés et données fictives](docs/screenshots/processes.png)](docs/screenshots/processes.png)
 
-## Démarrage et compilation
+Les deux captures proviennent directement du mode `--demo` de CyWinTask, avec des processus et des valeurs matérielles fictifs.
 
-Depuis les sources, installer le SDK .NET 8 et Visual Studio 2022 avec les outils C++. CyUI est actuellement un dépôt privé : les personnes autorisées doivent récupérer sa révision figée avant de compiler. La commande suivante crée ensuite un dossier autonome `dist-native` :
+## Fonctionnalités
+
+- **Analyse des processus :** recherche, tri, regroupement facultatif par type, arborescence des processus associés, multisélection et détails avancés.
+- **Surveillance compacte :** cartes CPU, RAM, GPU, disque et réseau, graphiques détaillés et fenêtres détachables.
+- **Mesures en direct :** jusqu’à 60 secondes d’historique ; les compteurs manquants sont indiqués comme indisponibles.
+- **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre supérieure.
+
+---
+
+## Installation
+
+L’application publiée cible Windows x64. L’installateur est configuré pour Windows 10 ou plus récent. Le runtime .NET nécessaire au collecteur est inclus : les téléchargements ne nécessitent pas d’installation .NET séparée.
+
+1. Télécharger l’[installateur 0.7.0](https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe) ou le [ZIP portable](https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip).
+2. Lancer l’installateur ou extraire le ZIP portable **entièrement** dans un dossier.
+3. Démarrer `CyWinTask.exe`. Pour le portable, conserver le dossier `bridge` à côté de l’exécutable.
+
+L’installateur ajoute un raccourci au menu Démarrer et propose un raccourci bureau. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis clavier. Voir la [version publiée et ses sommes de contrôle](https://github.com/MrMybal/CyWinTask/releases/tag/v0.7.0).
+
+## Sources, compilation et bibliothèques nécessaires
+
+<details>
+<summary>Compiler l’application native sous Windows</summary>
+
+Installer le SDK .NET 8 et Visual Studio 2022 avec les outils C++, CMake et Ninja. La compilation demande aussi un accès au [dépôt CyUI](https://github.com/MrMybal/CyUI), qui est **privé** ; le commit exact est indiqué dans [native/CYUI_REVISION](native/CYUI_REVISION). La copie de CyUI n’est pas incluse dans ce dépôt de sources. Inno Setup 6 sert uniquement à construire l’installateur.
 
 ```powershell
+git clone https://github.com/MrMybal/CyWinTask.git
+cd CyWinTask
+powershell -NoProfile -ExecutionPolicy Bypass -File native/Sync-CyUI.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1
 ./dist-native/CyWinTask.exe
 ```
 
-Avant la première compilation, exécuter `powershell -NoProfile -ExecutionPolicy Bypass -File native/Sync-CyUI.ps1` avec un accès GitHub au dépôt CyUI. Le commit utilisé est indiqué dans `native/CYUI_REVISION` ; la copie locale dans `third_party/CyUI` reste hors du dépôt public.
+`Build-Native.ps1 -Offline` utilise les paquets NuGet déjà présents dans le cache local. Pour construire un installateur et un ZIP portable, lancer `packaging/Build-Release.ps1 -Version 0.7.0` avec Inno Setup 6 disponible. L’ancienne interface WPF reste dans les sources, mais les paquets 0.7.0 publiés lancent l’interface native.
 
-Le dossier `bridge` doit rester à côté de `CyWinTask.exe`. Le script accepte `-Offline` si les paquets .NET requis sont déjà dans le cache NuGet local. Le runtime .NET nécessaire au collecteur est inclus dans la sortie ; l’interface Dear ImGui est un binaire natif. CyWinTask ne remplace pas les raccourcis ni le gestionnaire de tâches de Windows.
+</details>
 
-Pour visualiser l’interface avec des valeurs fictives, lancer `./dist-native/CyWinTask.exe --demo`. L’option `--performance` ouvre directement l’onglet Performance.
+---
 
-Pour examiner la présentation, les options `--theme navy|mid-grey|light-grey|amber-night|violet`, `--density compact|comfortable` et `--ui-scale 1.25` changent respectivement le thème, la densité et l'échelle de cette session. Le lancement ordinaire conserve le thème navy et la densité comfortable.
+## Licence
 
-La taille du texte et des contrôles est réglée à **115 %** au premier lancement. Les boutons **A− / A+** dans la barre supérieure ajustent le zoom de 100 à 170 % ; `Ctrl++`, `Ctrl+-` et `Ctrl+0` l’augmentent, le diminuent ou le rétablissent à 115 %. Le réglage est conservé pour les lancements suivants et s’adapte aussi à l’échelle d’affichage Windows.
+CyWinTask utilise la [licence publique générale GNU Affero v3.0](LICENSE). Les composants tiers conservent leurs propres conditions. Ce tableau présente les composants principaux de la version native publiée ; les notices complètes sont incluses dans le dossier `licenses` de l’application téléchargée.
 
-## Processus
+| Bibliothèque · sources | Licence · texte | Utilisation / périmètre |
+| --- | --- | --- |
+| [CyUI](https://github.com/MrMybal/CyUI) · sources 1.2.0 figées, dépôt privé | MIT ; `licenses/CyUI.txt` dans le téléchargement | Modules d’interface natifs Core, Plots et Canvas. |
+| [Dear ImGui](https://github.com/ocornut/imgui) · intégré à CyUI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) ; `licenses/Dear-ImGui.txt` dans le téléchargement | Rendu de l’interface native. |
+| [En-têtes stb de texte et de disposition](https://github.com/nothings/stb) · intégrés à Dear ImGui | MIT **ou** domaine public, au choix ; textes dans `licenses/stb/` | Rendu des polices et aides de texte/disposition de Dear ImGui. |
+| [Runtime .NET](https://github.com/dotnet/runtime) · 8.0.31 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) et notices des composants | Runtime inclus pour le collecteur séparé. |
+| [System.Management](https://www.nuget.org/packages/System.Management/8.0.0) · 8.0.0 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) et notices des composants | Données de gestion Windows utilisées par le collecteur. |
+| [System.CodeDom](https://www.nuget.org/packages/System.CodeDom/8.0.0) · 8.0.0 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) et notices des composants | Dépendance transitive du collecteur. |
 
-- Recherche immédiate par nom ou PID (`Ctrl+F`) et tri dans les deux sens par chaque colonne : nom, PID, CPU, mémoire, threads, handles.
-- Filtres Applications, Arrière-plan et Processus Windows ; regroupement par type facultatif. Le classement utilise les fenêtres visibles et le chemin de l’exécutable lorsqu’il est accessible.
-- Mode **Processus associés** : branches parent/enfants repliables. Un PID réutilisé ne rattache pas les enfants à un nouveau processus. Les valeurs affichées restent celles de chaque ligne, sans addition des descendants.
-- Sélection multiple avec Ctrl ou Maj, mise en évidence distincte des cadres de groupe, barres d’utilisation CPU et mémoire, icônes d’exécutables accessibles chargées progressivement.
-- Clic droit : arrêt avec confirmation, informations avancées, ouverture du dossier, copie du chemin ou du nom/PID. Les actions valident le PID et la date de création ; les processus critiques et CyWinTask lui-même ne peuvent pas être arrêtés depuis l’application. Seules les lignes sélectionnées sont visées, jamais automatiquement leurs enfants.
+Le SDK .NET, les outils C++ de Visual Studio et Inno Setup servent à la compilation et ne sont pas nécessaires pour exécuter les paquets publiés. Ce tableau est un index ; il ne remplace pas les notices fournies avec l’application.
 
-Les informations avancées incluent notamment le chemin, la date de démarrage, la session, la priorité, l’affinité, les compteurs de mémoire et les modules accessibles. Certains processus protégés limitent ces informations.
+## Références et liens
 
-## Performance
-
-L’onglet **Performance** propose les mesures CPU, mémoire physique et virtuelle engagée, disques, réseau et GPU. L’historique conserve au plus 60 secondes de mesures réelles ; il ne crée pas de points artificiels avant le lancement. Les compteurs manquants apparaissent comme indisponibles.
-
-Chaque ressource affiche sa valeur courante sous son nom. Les graphiques comportent une grille avec échelles de valeur et repères temporels ; le survol donne les mesures du point le plus proche. Le graphique des disques utilise une échelle distincte pour le pourcentage d’activité et les débits en Mo/s.
-
-- CPU : charge totale, processeurs logiques et grilles **Compacte (Windows)** ou **Détaillée**.
-- Mémoire : physique utilisée, disponible et mémoire virtuelle engagée.
-- Disques : activité, lecture et écriture sur un même graphique, avec trois couleurs.
-- GPU : utilisation, moteurs et mémoires exposés par Windows. La température CPU/GPU apparaît seulement si un capteur compatible est disponible.
-- **Vue graphiques** : tableau de bord compact par défaut, avec CPU, RAM, GPU, disques et réseau en cartes côte à côte. Le menu **Disposition** choisit les colonnes automatiques ou 2 à 4 colonnes, des cartes plus grandes et une vue limitée au CPU, à la RAM et aux GPU. **Fenêtre séparée** ouvre le même tableau de bord ; chaque carte peut aussi s’ouvrir seule. Les fenêtres réutilisent les mêmes mesures et la même pause.
-
-Les valeurs CPU et GPU peuvent différer du Gestionnaire de tâches de Windows. Les températures dépendent des capteurs disponibles ; l’application n’installe pas de pilote. Les données GPU viennent des compteurs WDDM et de DXGI, et certains pilotes ne publient pas tous les moteurs.
-
-## Architecture et performance
-
-Le collecteur réutilise un buffer `NtQuerySystemInformation` pour les processus et des requêtes PDH pour les mesures de performance. Il envoie un instantané au frontal environ une fois par seconde. La collecte de performance ne s’active que dans l’onglet correspondant ou lorsqu’une fenêtre de graphiques est ouverte. Les icônes sont mises en cache et leur chargement est limité par trame ; le tableau ne dessine que les lignes visibles. Le rendu natif ralentit lorsque la fenêtre perd le focus et suspend le dessin lorsqu’elle est minimisée.
-
-Le frontal et le collecteur sont compilés indépendamment : `native/CMakeLists.txt` et `Bridge/CyWinTask.Bridge.csproj`. L'interface native utilise les modules `CyUI::Core` et `CyUI::Plots` ; `CyUI::Canvas` est une dépendance de Plots. Audio, Gallery et Demo sont désactivés. L'application fournit un seul target Dear ImGui partagé avec CyUI. CyUI 1.2.0 est figé au commit indiqué dans `native/CYUI_REVISION` ; ses sources restent dans le dépôt privé CyUI. Les licences et notices des composants distribués se trouvent dans le dossier `licenses` de la sortie. Le frontal WPF historique reste constructible avec `dotnet build CyWinTask.csproj -c Release` ; ses tests existants se lancent avec `dotnet run --project Tests/CyWinTask.Tests.csproj -c Release`.
-
-Les tracés, la grille et les courbes utilisent `CyUI::Plots`. Ce module n'a qu'un axe Y : CyWinTask adapte les débits du disque à l'échelle du pourcentage et affiche les valeurs réelles sur l'axe droit et au survol. La barre fine du tableau des processus reste propre à l'application pour distinguer les charges inférieures à 1 %, que la barre arrondie de CyUI représente avec une largeur minimale.
-
-## Portable et installateur
-
-Le script ci-dessous construit le portable et l’installateur Inno Setup 6 à partir du frontal Dear ImGui :
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging/Build-Release.ps1 -Version 0.7.0 -InnoCompiler "C:\chemin\vers\ISCC.exe"
-```
-
-Les fichiers produits se trouvent dans `artifacts/releases/<version>/`. Le portable doit être extrait entièrement avant de lancer `CyWinTask.exe`. L’installateur place l’application dans le profil du compte courant, ajoute un raccourci au menu Démarrer et propose un raccourci bureau.
-
-## Limites
-
-La mémoire par processus est son working set ; leur somme ne représente pas la mémoire physique utilisée. Les processus protégés peuvent cacher leur chemin, leur icône ou leurs modules. Le regroupement applicatif reste une heuristique et ne reproduit pas exactement celle du Gestionnaire de tâches Windows. L’historique des applications, les programmes au démarrage et la gestion des services ne sont pas encore inclus.
-
-Références : [NtQuerySystemInformation](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation), [compteurs PDH](https://learn.microsoft.com/windows/win32/api/pdh/nf-pdh-pdhgetformattedcounterarrayw), [DXGI](https://learn.microsoft.com/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1).
+- [Dépôt des sources](https://github.com/MrMybal/CyWinTask) · [Versions publiées](https://github.com/MrMybal/CyWinTask/releases) · [Suivi des problèmes](https://github.com/MrMybal/CyWinTask/issues).
+- [Notes de version](VERSION.fr.md) · [English](README.md).
+- API Windows : [NtQuerySystemInformation](https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntquerysysteminformation), [compteurs PDH](https://learn.microsoft.com/windows/win32/api/pdh/nf-pdh-pdhgetformattedcounterarrayw), [DXGI](https://learn.microsoft.com/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc1).

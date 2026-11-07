@@ -29,6 +29,18 @@ New-Item -ItemType Directory -Force $releaseDir, $publishDir | Out-Null
 & (Join-Path $projectRoot 'native/Build-Native.ps1') -OutputDir $publishDir -Offline:$Offline
 if ($LASTEXITCODE -ne 0) { throw 'Compilation native en échec.' }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $publishDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'README.fr.md') -Destination $publishDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'VERSION.md') -Destination $publishDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'VERSION.fr.md') -Destination $publishDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $publishDir
+$imageDir = Join-Path $publishDir 'docs/screenshots'
+$logoDir = Join-Path $publishDir 'Assets'
+$nativeDir = Join-Path $publishDir 'native'
+New-Item -ItemType Directory -Force $imageDir, $logoDir, $nativeDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/processes.png') -Destination $imageDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/performance.png') -Destination $imageDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'Assets/cywintask-logo-transparent.png') -Destination $logoDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYUI_REVISION') -Destination $nativeDir
 @"
 CyWinTask $Version - Windows x64
 
