@@ -53,6 +53,8 @@ SystemSnapshot parseSnapshot(Reader& r)
         process.created = r.value<std::int64_t>();
         process.parent = r.value<std::int32_t>();
         process.cpu = r.value<double>();
+        process.gpu = r.value<double>();
+        process.gpuGroup = r.value<double>();
         process.workingSet = r.value<std::int64_t>();
         process.threads = r.value<std::int32_t>();
         process.handles = r.value<std::int32_t>();

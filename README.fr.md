@@ -30,7 +30,7 @@ CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processu
 
 ## L’application
 
-La page **Processus** recherche par nom ou PID, trie chaque colonne, filtre ou regroupe les types de processus et déplie les relations parent/enfants. Son mode compact affiche davantage de lignes, avec la durée et une note de confiance ; le panneau inférieur résume la sélection. Sélectionner plusieurs lignes avec Ctrl ou Maj pour consulter les détails ou utiliser les actions du clic droit. Les barres CPU et mémoire montrent la charge relative ; les icônes apparaissent quand elles sont accessibles. L’arrêt demande confirmation et vérifie de nouveau l’identité du processus. Les enfants ne sont pas arrêtés implicitement.
+La page **Processus** recherche par nom ou PID, trie chaque colonne, filtre ou regroupe les types de processus et déplie les relations parent/enfants. Son mode compact affiche davantage de lignes, avec la durée et une note de confiance ; le panneau inférieur résume la sélection. Sélectionner plusieurs lignes avec Ctrl ou Maj pour consulter les détails ou utiliser les actions du clic droit. Les barres CPU, GPU et mémoire montrent la charge relative ; les icônes apparaissent quand elles sont accessibles. En liste plate, la colonne GPU mesure le processus seul ; dans l’arborescence, une ligne parent affiche la charge de sa branche, enfants compris. Le pourcentage correspond au moteur GPU le plus sollicité et affiche « — » si le compteur Windows est indisponible. L’arrêt demande confirmation et vérifie de nouveau l’identité du processus. Les enfants ne sont pas arrêtés implicitement.
 
 La note de confiance est un **indice local** fondé sur la vérification Authenticode et l’emplacement du fichier. La vérification se fait en arrière-plan, sans requête réseau de révocation. Une signature par catalogue Windows peut ne pas être confirmée par cette vérification. La note ne prouve pas qu’un processus est sûr ou malveillant ; le survol et le panneau d’inspection indiquent les éléments disponibles.
 
@@ -42,7 +42,7 @@ Les deux captures proviennent directement de la version de développement actuel
 
 ## Fonctionnalités
 
-- **Analyse des processus :** recherche, tri, regroupement facultatif par type, arborescence des processus associés, multisélection, note de confiance et détails avancés.
+- **Analyse des processus :** recherche, tri, regroupement facultatif par type, arborescence des processus associés, utilisation GPU par processus ou branche, multisélection, note de confiance et détails avancés.
 - **Surveillance compacte :** cartes CPU, RAM, GPU, disque et réseau, graphiques détaillés et fenêtres détachables.
 - **Mesures en direct :** jusqu’à 60 secondes d’historique ; les compteurs manquants sont indiqués comme indisponibles.
 - **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre supérieure.

@@ -242,28 +242,30 @@ struct AppUi::State {
         snapshot.memoryUsedGb = 15.8;
         snapshot.memoryTotalGb = 32.0;
         snapshot.collectMs = 2.7;
-        const auto addProcess = [this](int id, int parent, const char* name, double cpu, int memoryMb,
+        const auto addProcess = [this](int id, int parent, const char* name, double cpu, double gpu, int memoryMb,
                                        int threads, std::uint8_t category) {
             ProcessInfo item;
-            item.id = id; item.parent = parent; item.name = name; item.cpu = cpu;
+            item.id = id; item.parent = parent; item.name = name; item.cpu = cpu; item.gpu = gpu; item.gpuGroup = gpu;
             item.created = 133400000000000000LL + id * 10000000LL;
             item.workingSet = static_cast<std::int64_t>(memoryMb) * 1048576;
             item.threads = threads; item.handles = threads * 31 + id % 59; item.category = category;
             snapshot.processes.push_back(std::move(item));
         };
-        addProcess(4200, 0, "Atelier.exe", 6.4, 1840, 42, 0);
-        addProcess(4201, 4200, "Atelier Renderer.exe", 3.1, 920, 19, 1);
-        addProcess(4202, 4200, "Atelier Media.exe", 0.8, 215, 11, 1);
-        addProcess(5600, 0, "Navigateur.exe", 2.3, 690, 27, 0);
-        addProcess(5601, 5600, "Navigateur Renderer.exe", 1.7, 412, 15, 1);
-        addProcess(6800, 0, "Notes.exe", 0.2, 155, 12, 0);
-        addProcess(8900, 0, "Synchronisation.exe", 0.6, 188, 9, 1);
-        addProcess(8901, 8900, "Synchronisation Worker.exe", 0.4, 120, 7, 1);
-        addProcess(1100, 0, "Système", 0.5, 305, 84, 2);
-        addProcess(1110, 1100, "Service audio", 0.1, 68, 14, 2);
+        addProcess(4200, 0, "Atelier.exe", 6.4, 4.2, 1840, 42, 0);
+        addProcess(4201, 4200, "Atelier Renderer.exe", 3.1, 27.5, 920, 19, 1);
+        addProcess(4202, 4200, "Atelier Media.exe", 0.8, 5.1, 215, 11, 1);
+        addProcess(5600, 0, "Navigateur.exe", 2.3, 0.3, 690, 27, 0);
+        addProcess(5601, 5600, "Navigateur Renderer.exe", 1.7, 8.6, 412, 15, 1);
+        addProcess(6800, 0, "Notes.exe", 0.2, 0.0, 155, 12, 0);
+        addProcess(8900, 0, "Synchronisation.exe", 0.6, 0.0, 188, 9, 1);
+        addProcess(8901, 8900, "Synchronisation Worker.exe", 0.4, 0.0, 120, 7, 1);
+        addProcess(1100, 0, "Système", 0.5, 0.0, 305, 84, 2);
+        addProcess(1110, 1100, "Service audio", 0.1, 0.0, 68, 14, 2);
         for (int i = 0; i < 24; ++i)
             addProcess(12000 + i, 0, ("Service de démonstration " + std::to_string(i + 1)).c_str(),
-                i % 6 == 0 ? 0.3 : 0.0, 12 + i * 3, 2 + i % 7, i % 3 == 0 ? 2 : 1);
+                i % 6 == 0 ? 0.3 : 0.0, 0.0, 12 + i * 3, 2 + i % 7, i % 3 == 0 ? 2 : 1);
+        snapshot.processes[0].gpuGroup = 31.7;
+        snapshot.processes[3].gpuGroup = 8.9;
         snapshot.devices = {
             { "cpu", "Processeur", "Processeur de démonstration · 8 processeurs logiques", "cpu",
                 { { "cpu", "Utilisation totale", "%", 18.4, 100 }, { "temperature", "Température CPU", "°C", 51, NAN } } },
@@ -459,10 +461,13 @@ struct AppUi::State {
             - (trustScores[left].score < trustScores[right].score); break;
         case 2: comparison = (a.id > b.id) - (a.id < b.id); break;
         case 3: comparison = (a.cpu > b.cpu) - (a.cpu < b.cpu); break;
-        case 4: comparison = (a.workingSet > b.workingSet) - (a.workingSet < b.workingSet); break;
-        case 5: comparison = (a.threads > b.threads) - (a.threads < b.threads); break;
-        case 6: comparison = (a.handles > b.handles) - (a.handles < b.handles); break;
-        case 7: comparison = (b.created > a.created) - (b.created < a.created); break;
+        case 4: { const double av = treeMode ? a.gpuGroup : a.gpu; const double bv = treeMode ? b.gpuGroup : b.gpu;
+            if (std::isfinite(av) != std::isfinite(bv)) return std::isfinite(av);
+            comparison = (av > bv) - (av < bv); break; }
+        case 5: comparison = (a.workingSet > b.workingSet) - (a.workingSet < b.workingSet); break;
+        case 6: comparison = (a.threads > b.threads) - (a.threads < b.threads); break;
+        case 7: comparison = (a.handles > b.handles) - (a.handles < b.handles); break;
+        case 8: comparison = (b.created > a.created) - (b.created < a.created); break;
         default: comparison = lower(a.name).compare(lower(b.name)); break;
         }
         if (comparison == 0) comparison = (a.id > b.id) - (a.id < b.id);
@@ -706,22 +711,23 @@ struct AppUi::State {
         constexpr ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter
             | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable
             | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingStretchProp;
-        const float innerWidth = std::max(ImGui::GetContentRegionAvail().x, cyui::dp(1100.0f));
+        const float innerWidth = std::max(ImGui::GetContentRegionAvail().x, cyui::dp(1210.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
             ImVec2(cyui::dp(5.0f), cyui::dp(compactProcesses ? 1.0f : 3.0f)));
-        if (!ImGui::BeginTable("##processes", 8, flags, ImVec2(0, height), innerWidth)) {
+        if (!ImGui::BeginTable("##processes", 9, flags, ImVec2(0, height), innerWidth)) {
             ImGui::PopStyleVar();
             return;
         }
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Nom du processus", ImGuiTableColumnFlags_DefaultSort, 0.35f, 0);
-        ImGui::TableSetupColumn("Confiance", ImGuiTableColumnFlags_PreferSortDescending, 0.10f, 1);
-        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, 0.07f, 2);
-        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, 0.10f, 3);
-        ImGui::TableSetupColumn("Mémoire", ImGuiTableColumnFlags_PreferSortDescending, 0.17f, 4);
-        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 5);
-        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 6);
-        ImGui::TableSetupColumn("Durée", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 7);
+        ImGui::TableSetupColumn("Nom du processus", ImGuiTableColumnFlags_DefaultSort, 0.31f, 0);
+        ImGui::TableSetupColumn("Confiance", ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 1);
+        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, 0.06f, 2);
+        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 3);
+        ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 4);
+        ImGui::TableSetupColumn("Mémoire", ImGuiTableColumnFlags_PreferSortDescending, 0.16f, 5);
+        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending, 0.06f, 6);
+        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 7);
+        ImGui::TableSetupColumn("Durée", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 8);
         ImGui::TableHeadersRow();
         if (auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsDirty && specs->SpecsCount > 0) {
             sortColumn = static_cast<int>(specs->Specs[0].ColumnUserID);
@@ -801,14 +807,21 @@ struct AppUi::State {
             ImGui::TableSetColumnIndex(2); ImGui::Text("%d", process.id);
             ImGui::TableSetColumnIndex(3); usageBar(process.cpu, std::isfinite(process.cpu) ? format("%.1f %%", process.cpu) : "—", false,
                 compactProcesses ? 18.0f : 22.0f);
+            const double gpu = treeMode && row.hasChildren ? process.gpuGroup : process.gpu;
+            ImGui::TableSetColumnIndex(4);
+            usageBar(gpu, std::isfinite(gpu) ? format("%.1f %%", gpu) : "—", false,
+                compactProcesses ? 18.0f : 22.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s · moteur GPU le plus sollicité%s",
+                treeMode && row.hasChildren ? "Groupe avec processus associés" : "Processus seul",
+                std::isfinite(gpu) ? "" : " · compteur indisponible");
             const double memoryMb = process.workingSet / 1048576.0;
             const double memoryPercent = snapshot.memoryTotalGb > 0 ? memoryMb / (snapshot.memoryTotalGb * 1024.0) * 100.0 : 0.0;
-            ImGui::TableSetColumnIndex(4);
+            ImGui::TableSetColumnIndex(5);
             usageBar(memoryPercent, format("%.1f Mo", memoryMb) + " · " + format("%.1f %%", memoryPercent), true,
                 compactProcesses ? 18.0f : 22.0f);
-            ImGui::TableSetColumnIndex(5); ImGui::Text("%d", process.threads);
-            ImGui::TableSetColumnIndex(6); ImGui::Text("%d", process.handles);
-            ImGui::TableSetColumnIndex(7); ImGui::TextUnformatted(processAge(process.created, snapshot.unixMs).c_str());
+            ImGui::TableSetColumnIndex(6); ImGui::Text("%d", process.threads);
+            ImGui::TableSetColumnIndex(7); ImGui::Text("%d", process.handles);
+            ImGui::TableSetColumnIndex(8); ImGui::TextUnformatted(processAge(process.created, snapshot.unixMs).c_str());
         }
         ImGui::EndTable();
         ImGui::PopStyleVar();
@@ -833,10 +846,11 @@ struct AppUi::State {
                     : result.score >= 30 ? cyui::palette().warning : cyui::palette().error,
                     "Confiance %d/100 · %s", result.score, result.label);
                 else cyui::textFaint("Confiance — · %s", result.label);
-                cyui::textDim("PID %d · Parent %d · %s · %s · %.1f Mo · %d threads · %d handles",
+                cyui::textDim("PID %d · Parent %d · %s · %s · CPU %.1f %% · GPU %s · %.1f Mo",
                     process->id, process->parent, categoryName(process->category),
                     processAge(process->created, snapshot.unixMs).c_str(),
-                    process->workingSet / 1048576.0, process->threads, process->handles);
+                    process->cpu, std::isfinite(process->gpu) ? format("%.1f %%", process->gpu).c_str() : "—",
+                    process->workingSet / 1048576.0);
                 cyui::textFaint("%s", result.explanation);
                 if (!process->path.empty()) {
                     cyui::textDim("Fichier : %s", process->path.c_str());

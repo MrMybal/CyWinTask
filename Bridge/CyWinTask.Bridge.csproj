@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="System.Management" Version="8.0.0" />
     <Compile Include="..\ProcessSampler.cs" Link="ProcessSampler.cs" />
+    <Compile Include="..\ProcessGpuCollector.cs" Link="ProcessGpuCollector.cs" />
     <Compile Include="..\PerformanceCollector.cs" Link="PerformanceCollector.cs" />
     <Compile Include="..\CommitMemory.cs" Link="CommitMemory.cs" />
     <Compile Include="..\TemperatureCollector.cs" Link="TemperatureCollector.cs" />

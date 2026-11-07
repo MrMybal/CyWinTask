@@ -40,7 +40,8 @@ internal static class BridgeProgram
         writer.Write((byte)3);
         Text(writer, message);
     });
-    private static void SnapshotFrame(Snapshot snapshot, (byte Category, string Path)[] metadata, PerfSnapshot? performance)
+    private static void SnapshotFrame(Snapshot snapshot, (byte Category, string Path)[] metadata,
+        Dictionary<int, ProcessGpuUsage>? gpuUsage, PerfSnapshot? performance)
     {
         Frame(writer =>
         {
@@ -58,6 +59,8 @@ internal static class BridgeProgram
                 writer.Write(process.Created);
                 writer.Write(process.ParentId);
                 writer.Write(process.Cpu);
+                writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.Own ?? double.NaN);
+                writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.Group ?? double.NaN);
                 writer.Write(process.WorkingSet);
                 writer.Write(process.Threads);
                 writer.Write(process.Handles);
@@ -121,6 +124,7 @@ internal static class BridgeProgram
         using var sampler = new ProcessSampler();
         var metadata = new BridgeMetadata();
         PerformanceCollector? performance = null;
+        using var processGpu = new ProcessGpuCollector();
         long next = 0;
         try
         {
@@ -135,6 +139,7 @@ internal static class BridgeProgram
                         var snapshot = sampler.Collect();
                         lastSnapshot = snapshot;
                         var info = metadata.Collect(snapshot.Processes);
+                        var gpuUsage = processGpu.Collect(snapshot.Processes);
                         PerfSnapshot? perf = null;
                         if (performanceVisible)
                         {
@@ -145,7 +150,7 @@ internal static class BridgeProgram
                             }
                             catch (Exception ex) { Error(ex.Message); }
                         }
-                        SnapshotFrame(snapshot, info, perf);
+                        SnapshotFrame(snapshot, info, gpuUsage, perf);
                     }
                     catch (Exception ex) { Error(ex.Message); }
                 }

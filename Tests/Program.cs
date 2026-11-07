@@ -32,6 +32,7 @@ internal static class Program
         if (args.Contains("--ui")) return UiChecks.Run();
         if (args.Contains("--tree")) return TreeChecks.Run();
         if (args.Contains("--sorting")) return SortingChecks.Run();
+        if (args.Contains("--process-gpu")) return ProcessGpuChecks.Run();
         if (args.Contains("--child")) { Thread.Sleep(30000); return 0; }
         try
         {

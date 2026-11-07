@@ -30,7 +30,7 @@ CyWinTask is a Windows x64 task manager for inspecting running processes and fol
 
 ## The application
 
-The **Processes** page searches by name or PID, sorts each column, filters or groups process types, and expands related parent/child processes. Its compact mode shows more rows, process age and a confidence score; the lower panel summarizes the selection. Select rows with Ctrl or Shift, then inspect details or use the right-click menu for available actions. CPU and memory bars show relative load; process icons appear when accessible. Stopping a process requires confirmation and revalidates its identity. Children are not stopped implicitly.
+The **Processes** page searches by name or PID, sorts each column, filters or groups process types, and expands related parent/child processes. Its compact mode shows more rows, process age and a confidence score; the lower panel summarizes the selection. Select rows with Ctrl or Shift, then inspect details or use the right-click menu for available actions. CPU, GPU and memory bars show relative load; process icons appear when accessible. In the flat list, the GPU column measures only that process; in the tree, a parent row includes its descendants. The percentage uses the busiest GPU engine and shows “—” when the Windows counter is unavailable. Stopping a process requires confirmation and revalidates its identity. Children are not stopped implicitly.
 
 The confidence score is a **local indicator** based on Authenticode verification and the executable's location. Verification runs in the background without online revocation checks. Windows catalog signatures may not be confirmed by this check. The score does not establish whether a process is safe or malicious; hover and the inspection panel show the available evidence.
 
@@ -42,7 +42,7 @@ Both screenshots were captured directly from the current development build in Cy
 
 ## Features
 
-- **Process analysis:** search, sorting, optional type grouping, related-process trees, multiselection, confidence indicator and advanced details.
+- **Process analysis:** search, sorting, optional type grouping, related-process trees, per-process or branch GPU usage, multiselection, confidence indicator and advanced details.
 - **Compact monitoring:** CPU, RAM, GPU, disk and network cards, plus detailed graphs and detachable windows.
 - **Live measurements:** up to 60 seconds of samples; missing counters are shown as unavailable rather than invented.
 - **Adjustable interface:** display themes, compact or comfortable density, and zoom controls in the title bar.
