@@ -119,10 +119,12 @@ void trustBar(const TrustResult& trust, const float height)
         const ImU32 colour = trust.score >= 80 ? colors.success
             : trust.score >= 55 ? colors.info : trust.score >= 30 ? colors.warning : colors.error;
         const float fill = width * static_cast<float>(trust.score) / 100.0f;
-        draw->AddRectFilled(position, ImVec2(position.x + fill, position.y + height), colour, cyui::dp(2.0f));
-        const auto score = std::to_string(trust.score);
+        draw->AddRectFilled(ImVec2(position.x, position.y + height - cyui::dp(3.0f)),
+            ImVec2(position.x + fill, position.y + height), colour);
+        const auto score = std::to_string(trust.score) + " / 100";
         draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
-            position.y + (height - ImGui::GetFontSize()) * 0.5f), colors.text, score.c_str());
+            position.y + std::max(0.0f, (height - ImGui::GetFontSize()) * 0.5f - cyui::dp(1.0f))),
+            colors.text, score.c_str());
     } else draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
         position.y + (height - ImGui::GetFontSize()) * 0.5f), colors.textDim,
         trust.state == TrustState::pending ? "..." : "—");
