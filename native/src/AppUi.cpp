@@ -1,5 +1,6 @@
 #include "AppUi.h"
 #include "BridgeClient.h"
+#include "ProcessTrust.h"
 #include "UiScale.h"
 
 #include <cyui/Core.h>
@@ -58,6 +59,16 @@ std::string format(const char* pattern, const double value)
     std::snprintf(buffer, sizeof(buffer), pattern, value);
     return buffer;
 }
+std::string processAge(const std::int64_t created, const std::int64_t unixMs)
+{
+    if (created <= 0 || unixMs <= 0) return "—";
+    const auto now = 116444736000000000LL + unixMs * 10000LL;
+    const auto seconds = std::max<std::int64_t>(0, (now - created) / 10000000LL);
+    char buffer[48] {};
+    if (seconds >= 86400) std::snprintf(buffer, sizeof(buffer), "%lld j %02lld h", seconds / 86400, seconds / 3600 % 24);
+    else std::snprintf(buffer, sizeof(buffer), "%02lld:%02lld:%02lld", seconds / 3600, seconds / 60 % 60, seconds % 60);
+    return buffer;
+}
 const char* categoryName(const std::uint8_t category)
 {
     return category == 0 ? "Applications" : category == 2 ? "Processus Windows" : "Arrière-plan";
@@ -78,14 +89,14 @@ ImU32 heat(const double percent, const bool memory)
     const auto& palette = cyui::palette();
     return value >= 50 ? palette.error : value >= 20 ? palette.warning : value >= 5 ? palette.info : palette.accent;
 }
-void usageBar(const double percent, const std::string& text, const bool memory)
+void usageBar(const double percent, const std::string& text, const bool memory, const float heightDp = 22.0f)
 {
     // CyUI's rounded progress bar enforces a minimum filled width. Process loads
     // below 1% need a proportional hairline so small differences remain visible.
     const auto& palette = cyui::palette();
     const auto pos = ImGui::GetCursorScreenPos();
     const float width = std::max(cyui::dp(55.0f), ImGui::GetContentRegionAvail().x);
-    const float height = cyui::dp(22.0f);
+    const float height = cyui::dp(heightDp);
     ImGui::Dummy(ImVec2(width, height));
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 max(pos.x + width, pos.y + height);
@@ -95,6 +106,28 @@ void usageBar(const double percent, const std::string& text, const bool memory)
             ImVec2(pos.x + width * static_cast<float>(std::clamp(percent / 100.0, 0.0, 1.0)), max.y),
             heat(percent, memory));
     draw->AddText(ImVec2(pos.x + cyui::dp(5.0f), pos.y + (height - ImGui::GetFontSize()) * 0.5f), palette.text, text.c_str());
+}
+void trustBar(const TrustResult& trust, const float height)
+{
+    const auto& colors = cyui::palette();
+    const auto position = ImGui::GetCursorScreenPos();
+    const float width = std::max(cyui::dp(64.0f), ImGui::GetContentRegionAvail().x);
+    ImGui::Dummy(ImVec2(width, height));
+    auto* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(position, ImVec2(position.x + width, position.y + height), colors.bg3, cyui::dp(2.0f));
+    if (trust.score >= 0) {
+        const ImU32 colour = trust.score >= 80 ? colors.success
+            : trust.score >= 55 ? colors.info : trust.score >= 30 ? colors.warning : colors.error;
+        const float fill = width * static_cast<float>(trust.score) / 100.0f;
+        draw->AddRectFilled(position, ImVec2(position.x + fill, position.y + height), colour, cyui::dp(2.0f));
+        const auto score = std::to_string(trust.score);
+        draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
+            position.y + (height - ImGui::GetFontSize()) * 0.5f), colors.text, score.c_str());
+    } else draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
+        position.y + (height - ImGui::GetFontSize()) * 0.5f), colors.textDim,
+        trust.state == TrustState::pending ? "..." : "—");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s\nIndice local, pas une analyse antivirus.",
+        trust.label, trust.explanation);
 }
 class IconCache {
     ID3D11Device* device_ {};
@@ -176,10 +209,11 @@ struct AppUi::State {
     }
     BridgeClient bridge;
     IconCache icons;
+    ProcessTrust trust;
     SystemSnapshot snapshot;
     bool demoMode {};
     bool hasSnapshot {}, performancePage {}, paused {}, graphMode { true }, groupByType {}, treeMode { true };
-    bool compactGraphCards { true }, graphExtraDevices { true };
+    bool compactGraphCards { true }, graphExtraDevices { true }, compactProcesses { true }, showProcessInspector { true };
     bool showCores {}, compactCores { true }, stopModal {}, detailsOpen {}, focusSearch {};
     bool initialExpansion { true };
     int categoryFilter {}, sortColumn {}, sortDirection { 1 }, lastSelected {-1}, nextRequest {1};
@@ -190,11 +224,13 @@ struct AppUi::State {
     std::vector<Key> pendingStop;
     std::vector<DisplayRow> display;
     std::vector<int> topCpu, topMemory;
+    std::vector<TrustResult> trustScores;
     std::unordered_map<std::string, History> histories;
     std::unordered_map<std::string, std::vector<cyui::Point>> plotPoints;
     std::unordered_map<std::string, double> diskRateScale;
     std::map<std::string, bool> detached;
     bool dirty { true };
+    double nextTrustRefresh {};
 
     void fillDemo()
     {
@@ -247,9 +283,11 @@ struct AppUi::State {
         for (int i = 0; i < 8; ++i)
             snapshot.devices[0].metrics.push_back({ "core:" + std::to_string(i),
                 "Processeur logique " + std::to_string(i), "%", 8.0 + i * 3.1, 100 });
+        selected.insert(identity(snapshot.processes.front()));
         for (const auto& process : snapshot.processes) if (process.category == 0) expanded.insert(identity(process));
         initialExpansion = false;
         refreshTopProcesses();
+        refreshTrustScores();
         const double now = snapshot.unixMs / 1000.0;
         for (const auto& device : snapshot.devices)
             for (const auto& value : device.metrics) {
@@ -278,6 +316,7 @@ struct AppUi::State {
             hasSnapshot = true;
             dirty = true;
             refreshTopProcesses();
+            refreshTrustScores();
             error.clear();
             const double now = snapshot.unixMs / 1000.0;
             for (const auto& device : snapshot.devices)
@@ -330,6 +369,27 @@ struct AppUi::State {
                 ? cpuValue(a) > cpuValue(b) : snapshot.processes[a].workingSet > snapshot.processes[b].workingSet; });
         topCpu.resize(keep);
         topMemory.resize(keep);
+    }
+    bool refreshTrustScores()
+    {
+        std::vector<TrustResult> updated;
+        updated.reserve(snapshot.processes.size());
+        for (const auto& process : snapshot.processes) {
+            if (demoMode) {
+                const int score = process.id == 12009 ? 12 : process.id == 6800 ? 40
+                    : process.category == 2 ? 94 : process.category == 0 ? 88 : 63;
+                updated.push_back({ TrustState::verified, score, "Simulation", "Note fictive de démonstration." });
+            } else updated.push_back(trust.get(process.path));
+        }
+        bool changed = updated.size() != trustScores.size();
+        if (!changed)
+            for (std::size_t i = 0; i < updated.size(); ++i)
+                if (updated[i].state != trustScores[i].state || updated[i].score != trustScores[i].score) {
+                    changed = true;
+                    break;
+                }
+        trustScores = std::move(updated);
+        return changed;
     }
     void preparePlots()
     {
@@ -393,11 +453,14 @@ struct AppUi::State {
         const auto& b = snapshot.processes[right];
         int comparison {};
         switch (sortColumn) {
-        case 1: comparison = (a.id > b.id) - (a.id < b.id); break;
-        case 2: comparison = (a.cpu > b.cpu) - (a.cpu < b.cpu); break;
-        case 3: comparison = (a.workingSet > b.workingSet) - (a.workingSet < b.workingSet); break;
-        case 4: comparison = (a.threads > b.threads) - (a.threads < b.threads); break;
-        case 5: comparison = (a.handles > b.handles) - (a.handles < b.handles); break;
+        case 1: comparison = (trustScores[left].score > trustScores[right].score)
+            - (trustScores[left].score < trustScores[right].score); break;
+        case 2: comparison = (a.id > b.id) - (a.id < b.id); break;
+        case 3: comparison = (a.cpu > b.cpu) - (a.cpu < b.cpu); break;
+        case 4: comparison = (a.workingSet > b.workingSet) - (a.workingSet < b.workingSet); break;
+        case 5: comparison = (a.threads > b.threads) - (a.threads < b.threads); break;
+        case 6: comparison = (a.handles > b.handles) - (a.handles < b.handles); break;
+        case 7: comparison = (b.created > a.created) - (b.created < a.created); break;
         default: comparison = lower(a.name).compare(lower(b.name)); break;
         }
         if (comparison == 0) comparison = (a.id > b.id) - (a.id < b.id);
@@ -608,10 +671,14 @@ struct AppUi::State {
         }
         cyui::endTopBar();
     }
-    void processOverview()
+    void processOverview(const bool withTitle)
     {
         if (cyui::beginToolbar("##processOverview")) {
             const auto& colors = cyui::palette();
+            if (withTitle) {
+                cyui::heading("Processus", 3);
+                cyui::toolbarSeparator();
+            }
             cyui::textDim("CPU"); ImGui::SameLine();
             if (std::isfinite(snapshot.cpu)) cyui::textColoured(colors.info, "%.0f %%", snapshot.cpu);
             else cyui::textFaint("—");
@@ -631,21 +698,28 @@ struct AppUi::State {
         }
         cyui::endToolbar();
     }
-    void processTable()
+    void processTable(const float height)
     {
         buildRows();
         constexpr ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter
             | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable
             | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingStretchProp;
-        const float innerWidth = std::max(ImGui::GetContentRegionAvail().x, cyui::dp(880.0f));
-        if (!ImGui::BeginTable("##processes", 6, flags, ImVec2(0, 0), innerWidth)) return;
+        const float innerWidth = std::max(ImGui::GetContentRegionAvail().x, cyui::dp(1100.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+            ImVec2(cyui::dp(5.0f), cyui::dp(compactProcesses ? 1.0f : 3.0f)));
+        if (!ImGui::BeginTable("##processes", 8, flags, ImVec2(0, height), innerWidth)) {
+            ImGui::PopStyleVar();
+            return;
+        }
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Nom du processus", ImGuiTableColumnFlags_DefaultSort, 0.46f, 0);
-        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, 0.08f, 1);
-        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, 0.11f, 2);
-        ImGui::TableSetupColumn("Mémoire", ImGuiTableColumnFlags_PreferSortDescending, 0.19f, 3);
-        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending, 0.08f, 4);
-        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending, 0.08f, 5);
+        ImGui::TableSetupColumn("Nom du processus", ImGuiTableColumnFlags_DefaultSort, 0.35f, 0);
+        ImGui::TableSetupColumn("Confiance", ImGuiTableColumnFlags_PreferSortDescending, 0.10f, 1);
+        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, 0.07f, 2);
+        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, 0.10f, 3);
+        ImGui::TableSetupColumn("Mémoire", ImGuiTableColumnFlags_PreferSortDescending, 0.17f, 4);
+        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 5);
+        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 6);
+        ImGui::TableSetupColumn("Durée", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 7);
         ImGui::TableHeadersRow();
         if (auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsDirty && specs->SpecsCount > 0) {
             sortColumn = static_cast<int>(specs->Specs[0].ColumnUserID);
@@ -655,7 +729,7 @@ struct AppUi::State {
             buildRows();
         }
         const auto& palette = cyui::palette();
-        const float rowHeight = cyui::dp(30.0f);
+        const float rowHeight = cyui::dp(compactProcesses ? 23.0f : 30.0f);
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(display.size()), rowHeight);
         while (clipper.Step()) for (int displayIndex = clipper.DisplayStart; displayIndex < clipper.DisplayEnd; ++displayIndex) {
@@ -677,7 +751,8 @@ struct AppUi::State {
             else if (row.depth > 0 || row.hasChildren)
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, row.depth ? palette.bg3 : palette.bg4);
             const bool clicked = ImGui::Selectable(id.c_str(), active,
-                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, rowHeight));
+                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick,
+                ImVec2(0, rowHeight - cyui::dp(compactProcesses ? 2.0f : 6.0f)));
             const auto bounds = ImGui::GetItemRectMax();
             const bool arrowClick = row.hasChildren && ImGui::IsItemHovered()
                 && ImGui::GetMousePos().x < position.x + cyui::dp(18.0f + row.depth * 15.0f);
@@ -704,9 +779,10 @@ struct AppUi::State {
             }
             x += cyui::dp(17.0f);
             if (auto* icon = icons.get(process.path)) {
-                const float iconY = position.y + (rowHeight - cyui::dp(18.0f)) * 0.5f;
+                const float iconSize = cyui::dp(compactProcesses ? 15.0f : 18.0f);
+                const float iconY = position.y + (rowHeight - iconSize) * 0.5f;
                 draw->AddImage(ImTextureRef(icon), ImVec2(x, iconY),
-                    ImVec2(x + cyui::dp(18.0f), iconY + cyui::dp(18.0f)));
+                    ImVec2(x + iconSize, iconY + iconSize));
             } else draw->AddText(ImVec2(x, textY), palette.textFaint, cyui::icon::code);
             x += cyui::dp(28.0f);
             const auto available = std::max(0.0f, ImGui::GetCurrentTable()->Columns[0].WidthGiven - (x - position.x) - cyui::dp(8.0f));
@@ -719,23 +795,68 @@ struct AppUi::State {
                 processActions(process);
                 ImGui::EndPopup();
             }
-            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", process.id);
-            ImGui::TableSetColumnIndex(2); usageBar(process.cpu, format("%.1f %%", process.cpu), false);
+            ImGui::TableSetColumnIndex(1); trustBar(trustScores[row.index], cyui::dp(compactProcesses ? 17.0f : 22.0f));
+            ImGui::TableSetColumnIndex(2); ImGui::Text("%d", process.id);
+            ImGui::TableSetColumnIndex(3); usageBar(process.cpu, std::isfinite(process.cpu) ? format("%.1f %%", process.cpu) : "—", false,
+                compactProcesses ? 18.0f : 22.0f);
             const double memoryMb = process.workingSet / 1048576.0;
             const double memoryPercent = snapshot.memoryTotalGb > 0 ? memoryMb / (snapshot.memoryTotalGb * 1024.0) * 100.0 : 0.0;
-            ImGui::TableSetColumnIndex(3);
-            usageBar(memoryPercent, format("%.1f Mo", memoryMb) + " · " + format("%.1f %%", memoryPercent), true);
-            ImGui::TableSetColumnIndex(4); ImGui::Text("%d", process.threads);
-            ImGui::TableSetColumnIndex(5); ImGui::Text("%d", process.handles);
+            ImGui::TableSetColumnIndex(4);
+            usageBar(memoryPercent, format("%.1f Mo", memoryMb) + " · " + format("%.1f %%", memoryPercent), true,
+                compactProcesses ? 18.0f : 22.0f);
+            ImGui::TableSetColumnIndex(5); ImGui::Text("%d", process.threads);
+            ImGui::TableSetColumnIndex(6); ImGui::Text("%d", process.handles);
+            ImGui::TableSetColumnIndex(7); ImGui::TextUnformatted(processAge(process.created, snapshot.unixMs).c_str());
         }
         ImGui::EndTable();
+        ImGui::PopStyleVar();
+    }
+    void processInspector()
+    {
+        if (cyui::beginCard("##processInspector", nullptr, compactProcesses ? 120.0f : 145.0f)) {
+            if (selected.empty()) {
+                cyui::heading("Inspection rapide", 3);
+                cyui::textDim("Sélectionnez un processus pour voir son identité, son chemin et la note de confiance.");
+                cyui::textFaint("Indice local basé sur la signature Authenticode et l'emplacement du fichier ; ce n'est pas un antivirus.");
+            } else if (selected.size() > 1) {
+                cyui::heading("Sélection multiple", 3);
+                cyui::textDim("%zu processus sélectionnés · clic droit pour les actions disponibles.", selected.size());
+            } else if (const auto* process = find(*selected.begin())) {
+                const auto index = static_cast<std::size_t>(process - snapshot.processes.data());
+                const auto& result = trustScores[index];
+                cyui::heading(process->name.c_str(), 3);
+                ImGui::SameLine(0.0f, cyui::dp(16.0f));
+                if (result.score >= 0) cyui::textColoured(result.score >= 80 ? cyui::palette().success
+                    : result.score >= 55 ? cyui::palette().info
+                    : result.score >= 30 ? cyui::palette().warning : cyui::palette().error,
+                    "Confiance %d/100 · %s", result.score, result.label);
+                else cyui::textFaint("Confiance — · %s", result.label);
+                cyui::textDim("PID %d · Parent %d · %s · %s · %.1f Mo · %d threads · %d handles",
+                    process->id, process->parent, categoryName(process->category),
+                    processAge(process->created, snapshot.unixMs).c_str(),
+                    process->workingSet / 1048576.0, process->threads, process->handles);
+                cyui::textFaint("%s", result.explanation);
+                if (!process->path.empty()) {
+                    cyui::textDim("Fichier : %s", process->path.c_str());
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", process->path.c_str());
+                } else cyui::textFaint("Chemin du fichier indisponible.");
+            }
+        }
+        cyui::endCard();
     }
     void processes()
     {
-        cyui::panelHeader("Processus", "Recherche, tri et inspection des tâches en cours");
-        cyui::space(8);
-        processOverview();
-        cyui::space(6);
+        if (hasSnapshot && !demoMode && ImGui::GetTime() >= nextTrustRefresh) {
+            if (refreshTrustScores()) dirty = true;
+            nextTrustRefresh = ImGui::GetTime() + 0.75;
+        }
+        if (compactProcesses) processOverview(true);
+        else {
+            cyui::panelHeader("Processus", "Recherche, tri et inspection des tâches en cours");
+            cyui::space(8);
+            processOverview(false);
+        }
+        cyui::space(compactProcesses ? 4.0f : 6.0f);
         if (cyui::beginToolbar("##processToolbar")) {
             if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) focusSearch = true;
             if (focusSearch) { ImGui::SetKeyboardFocusHere(); focusSearch = false; }
@@ -762,22 +883,38 @@ struct AppUi::State {
         }
         cyui::endToolbar();
         cyui::space(4);
+        const bool narrowFilters = ImGui::GetContentRegionAvail().x < cyui::dp(830.0f);
+        const auto filterOptions = [this] {
+            if (ImGui::Checkbox("Regrouper par type", &groupByType)) dirty = true;
+            ImGui::SameLine(0.0f, cyui::dp(16.0f));
+            if (ImGui::Checkbox("Processus associés", &treeMode)) dirty = true;
+            ImGui::SameLine(0.0f, cyui::dp(16.0f));
+            ImGui::Checkbox("Compact", &compactProcesses);
+            ImGui::SameLine(0.0f, cyui::dp(16.0f));
+            ImGui::Checkbox("Inspection", &showProcessInspector);
+        };
         if (cyui::beginToolbar("##processFilters")) {
             cyui::textDim("Afficher"); ImGui::SameLine();
             ImGui::SetNextItemWidth(cyui::dp(220.0f));
             const char* filters[] { "Tous les processus", "Applications", "Arrière-plan", "Processus Windows" };
             if (ImGui::Combo("##categoryFilter", &categoryFilter, filters, 4)) dirty = true;
-            ImGui::SameLine(0.0f, cyui::dp(16.0f));
-            if (ImGui::Checkbox("Regrouper par type", &groupByType)) dirty = true;
-            ImGui::SameLine(0.0f, cyui::dp(16.0f));
-            if (ImGui::Checkbox("Processus associés", &treeMode)) dirty = true;
+            if (!narrowFilters) { ImGui::SameLine(0.0f, cyui::dp(16.0f)); filterOptions(); }
         }
         cyui::endToolbar();
+        if (narrowFilters) {
+            if (cyui::beginToolbar("##processFilterOptions")) filterOptions();
+            cyui::endToolbar();
+        }
         cyui::space(4);
         if (hasSnapshot) buildRows();
+        const float available = ImGui::GetContentRegionAvail().y;
+        const bool inspectorVisible = showProcessInspector && available >= cyui::dp(340.0f);
+        const float inspectorHeight = cyui::dp(compactProcesses ? 120.0f : 145.0f);
+        const float tableHeight = inspectorVisible ? std::max(cyui::dp(140.0f), available - inspectorHeight - cyui::dp(8.0f)) : available;
         if (!hasSnapshot) cyui::emptyState("En attente des processus", "Le collecteur démarre.", cyui::icon::refresh);
         else if (display.empty()) cyui::emptyState("Aucun processus trouvé", "Modifiez la recherche ou le filtre.", cyui::icon::search);
-        else processTable();
+        else processTable(tableHeight);
+        if (inspectorVisible) { cyui::space(4); processInspector(); }
     }
     ImU32 seriesColor(const DeviceInfo& device, const MetricInfo& value) const
     {

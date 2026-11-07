@@ -39,10 +39,10 @@ set(CYUI_BUILD_GALLERY OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CYUI_ROOT}" "${CMAKE_BINARY_DIR}/cyui")
 
 add_executable(CyWinTask WIN32
-    src/main.cpp src/BridgeClient.cpp src/AppUi.cpp src/UiScale.cpp src/resources.rc
+    src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp src/UiScale.cpp src/resources.rc
     "${IMGUI_DIR}/backends/imgui_impl_win32.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
 target_include_directories(CyWinTask PRIVATE "${IMGUI_DIR}" "${IMGUI_DIR}/backends")
 target_compile_options(CyWinTask PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTask PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(CyWinTask PRIVATE CyUI::Core CyUI::Plots d3d11 dxgi d3dcompiler dwmapi shell32 gdi32 user32 advapi32)
+target_link_libraries(CyWinTask PRIVATE CyUI::Core CyUI::Plots d3d11 dxgi d3dcompiler dwmapi shell32 gdi32 user32 advapi32 wintrust)
