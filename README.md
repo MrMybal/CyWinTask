@@ -1,13 +1,24 @@
-<p align="center"><img src="Assets/cywintask-logo-transparent.png" alt="CyWinTask logo" width="96"></p>
+<table width="100%">
+  <tr>
+    <td width="300" align="left" valign="top">
+      <a href="https://github.com/MrMybal/CyWinTask">Repository</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/issues">Issues</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/releases">Releases</a><br><br>
+      <sub>README</sub><br>
+      <a href="README.md">English</a> · <a href="README.fr.md">Français</a>
+    </td>
+    <td width="400" align="center" valign="middle">
+      <img src="Assets/cywintask-logo-transparent.png" alt="CyWinTask logo" width="128">
+    </td>
+    <td width="300" align="right" valign="top">
+      <p><sub>Application license</sub><br><a href="LICENSE"><strong>GNU AGPL v3.0</strong></a></p>
+      <p><sub>Version</sub><br><a href="VERSION.md"><strong>0.7.0</strong></a><br><strong>IN DEVELOPMENT</strong></p>
+      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe"><strong>Installer</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip"><strong>Portable ZIP</strong></a><br><sub>Windows x64</sub></p>
+    </td>
+  </tr>
+</table>
+
 <h1 align="center">CyWinTask</h1>
-<p align="center"><strong>Windows x64 · <a href="VERSION.md">0.7.0</a> · In development</strong></p>
-<p align="center">
-  <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe">Installer</a> ·
-  <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip">Portable ZIP</a> ·
-  <a href="https://github.com/MrMybal/CyWinTask/releases">Releases</a> ·
-  <a href="LICENSE">AGPL-3.0 license</a>
-</p>
-<p align="center"><a href="README.md">English</a> · <a href="README.fr.md">Français</a></p>
 
 CyWinTask is a Windows x64 task manager for inspecting running processes and following system activity in real time. Its distributed interface uses Dear ImGui, CyUI and Direct3D 11; a separate .NET 8 collector supplies Windows measurements.
 

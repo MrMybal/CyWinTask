@@ -1,13 +1,24 @@
-<p align="center"><img src="Assets/cywintask-logo-transparent.png" alt="Logo de CyWinTask" width="96"></p>
+<table width="100%">
+  <tr>
+    <td width="300" align="left" valign="top">
+      <a href="https://github.com/MrMybal/CyWinTask">Dépôt</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/issues">Problèmes</a><br>
+      <a href="https://github.com/MrMybal/CyWinTask/releases">Versions publiées</a><br><br>
+      <sub>README</sub><br>
+      <a href="README.md">English</a> · <a href="README.fr.md">Français</a>
+    </td>
+    <td width="400" align="center" valign="middle">
+      <img src="Assets/cywintask-logo-transparent.png" alt="Logo de CyWinTask" width="128">
+    </td>
+    <td width="300" align="right" valign="top">
+      <p><sub>Licence de l’application</sub><br><a href="LICENSE"><strong>GNU AGPL v3.0</strong></a></p>
+      <p><sub>Version</sub><br><a href="VERSION.fr.md"><strong>0.7.0</strong></a><br><strong>EN DÉVELOPPEMENT</strong></p>
+      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe"><strong>Installateur</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip"><strong>ZIP portable</strong></a><br><sub>Windows x64</sub></p>
+    </td>
+  </tr>
+</table>
+
 <h1 align="center">CyWinTask</h1>
-<p align="center"><strong>Windows x64 · <a href="VERSION.fr.md">0.7.0</a> · En développement</strong></p>
-<p align="center">
-  <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe">Installateur</a> ·
-  <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip">ZIP portable</a> ·
-  <a href="https://github.com/MrMybal/CyWinTask/releases">Versions publiées</a> ·
-  <a href="LICENSE">Licence AGPL-3.0</a>
-</p>
-<p align="center"><a href="README.md">English</a> · <a href="README.fr.md">Français</a></p>
 
 CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processus et suivre l’activité du système en temps réel. L’interface distribuée utilise Dear ImGui, CyUI et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows.
 
