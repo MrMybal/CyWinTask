@@ -4,6 +4,15 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $target = Join-Path $root 'third_party/CyUI'
 $revision = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'CYUI_REVISION') -Raw).Trim()
+$local = [IO.Path]::GetFullPath((Join-Path $root '../CyImgui_Interface'))
+if (Test-Path -LiteralPath (Join-Path $local 'src/modules/DocumentViews.cpp')) {
+    $actual = & git -c "safe.directory=$($local.Replace('\','/'))" -C $local rev-parse HEAD
+    if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne $revision) {
+        throw 'La copie locale de CyUI ne correspond pas à native/CYUI_REVISION.'
+    }
+    Write-Output "CyUI local prêt : $revision"
+    return
+}
 $source = 'https://github.com/MrMybal/CyUI.git'
 if (-not (Test-Path -LiteralPath $target)) {
     New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null

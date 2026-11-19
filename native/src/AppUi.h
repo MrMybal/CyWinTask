@@ -3,7 +3,8 @@
 struct ID3D11Device;
 class AppUi {
 public:
-    explicit AppUi(ID3D11Device* device, bool demoMode = false, bool performanceAtStart = false);
+    explicit AppUi(ID3D11Device* device, bool demoMode = false, bool performanceAtStart = false,
+                   bool assistantAtStart = false);
     ~AppUi();
     void frame();
 private:

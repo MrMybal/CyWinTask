@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '0.7.0',
+    [string]$Version = '0.8.0',
     [string]$InnoCompiler,
     [switch]$Offline
 )
@@ -34,18 +34,22 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'VERSION.md') -Destination $publi
 Copy-Item -LiteralPath (Join-Path $projectRoot 'VERSION.fr.md') -Destination $publishDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $publishDir
 $imageDir = Join-Path $publishDir 'docs/screenshots'
+$guideDir = Join-Path $publishDir 'docs'
 $logoDir = Join-Path $publishDir 'Assets'
 $nativeDir = Join-Path $publishDir 'native'
-New-Item -ItemType Directory -Force $imageDir, $logoDir, $nativeDir | Out-Null
+New-Item -ItemType Directory -Force $imageDir, $guideDir, $logoDir, $nativeDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/CyMCPSDK.fr.md') -Destination $guideDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/processes.png') -Destination $imageDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/performance.png') -Destination $imageDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'Assets/cywintask-logo-transparent.png') -Destination $logoDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYUI_REVISION') -Destination $nativeDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYMCP_REVISION') -Destination $nativeDir
 @"
 CyWinTask $Version - Windows x64
 
 Interface Dear ImGui et CyUI ; collecteur .NET autonome inclus.
 Extraire TOUT le dossier ZIP, puis lancer CyWinTask.exe.
+CyWinTaskCli.exe permet l'accès CLI et MCP depuis un terminal ou une IA externe.
 Conserver le dossier bridge et les autres fichiers à côté de l'exécutable.
 Sources : https://github.com/MrMybal/CyWinTask
 Licences : voir LICENSE.txt et le dossier licenses.

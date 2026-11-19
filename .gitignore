@@ -7,6 +7,7 @@
 /native/build/
 /native/build-ninja/
 /third_party/CyUI/
+/third_party/CyMCPSDK/
 TestResults/
 coverage/
 *.coverage

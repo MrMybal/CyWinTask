@@ -1,7 +1,9 @@
 #include "AppUi.h"
+#include "AssistantPane.h"
 #include "BridgeClient.h"
 #include "ProcessTrust.h"
 #include "UiScale.h"
+#include "UiBridge.h"
 
 #include <cyui/Core.h>
 #include <cyui/modules/Plots.h>
@@ -27,6 +29,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+using cymcp::Json;
+using cymcp::Error;
 
 namespace {
 struct Key {
@@ -202,19 +207,22 @@ struct DisplayRow {
 }
 
 struct AppUi::State {
-    explicit State(ID3D11Device* device, const bool demo, const bool showPerformance)
-        : icons(device), demoMode(demo), performancePage(showPerformance)
+    explicit State(ID3D11Device* device, const bool demo, const bool showPerformance, const bool showAssistant)
+        : icons(device), demoMode(demo), performancePage(showPerformance && !showAssistant), assistantPage(showAssistant)
     {
         if (demoMode) { fillDemo(); return; }
         if (!bridge.start()) { error = bridge.startupError(); return; }
-        bridge.send(showPerformance ? "M 1\n" : "M 0\n");
+        bridge.send(performancePage ? "M 1\n" : "M 0\n");
     }
+    ~State() { uiBridge->close(); }
     BridgeClient bridge;
     IconCache icons;
     ProcessTrust trust;
     SystemSnapshot snapshot;
     bool demoMode {};
-    bool hasSnapshot {}, performancePage {}, paused {}, graphMode { true }, groupByType {}, treeMode { true };
+    std::shared_ptr<UiBridge> uiBridge = std::make_shared<UiBridge>();
+    bool hasSnapshot {}, performancePage {}, assistantPage {}, paused {}, graphMode { true }, groupByType {}, treeMode { true };
+    std::unique_ptr<AssistantPane> assistantPane;
     bool compactGraphCards { true }, graphExtraDevices { true }, compactProcesses { true }, showProcessInspector { true };
     bool showCores {}, compactCores { true }, stopModal {}, detailsOpen {}, focusSearch {};
     bool initialExpansion { true };
@@ -306,8 +314,165 @@ struct AppUi::State {
 
     void switchPage(const bool performance)
     {
+        assistantPage = false;
         performancePage = performance;
         if (!demoMode) bridge.send(performance || !detached.empty() ? "M 1\n" : "M 0\n");
+    }
+    void switchAssistant()
+    {
+        assistantPage = true;
+        performancePage = false;
+        if (!demoMode) bridge.send(detached.empty() ? "M 0\n" : "M 1\n");
+    }
+    Json uiState() const
+    {
+        Json chosen = Json::array(), windows = Json::array(), devices = Json::array();
+        for (const auto& key : selected) chosen.push_back({{"pid", key.id}, {"created", key.created}});
+        for (const auto& [name, open] : detached) if (open) windows.push_back(name);
+        for (const auto& device : snapshot.devices) devices.push_back(device.id);
+        return {{"ready", hasSnapshot},
+            {"page", assistantPage ? "assistant" : performancePage ? "performance" : "processes"},
+            {"paused", paused}, {"scale_percent", ui_scale::percent()},
+            {"processes", {{"query", search}, {"category", categoryFilter},
+                {"group_by_type", groupByType}, {"related", treeMode}, {"compact", compactProcesses},
+                {"inspector", showProcessInspector}, {"sort_column", sortColumn},
+                {"descending", sortDirection < 0}, {"selected", std::move(chosen)}}},
+            {"performance", {{"view", graphMode ? "graphs" : "detail"},
+                {"device_id", activeDevice}, {"devices", std::move(devices)},
+                {"columns", graphColumnsMode}, {"compact_cards", compactGraphCards},
+                {"extra_devices", graphExtraDevices}, {"show_cores", showCores},
+                {"compact_cores", compactCores}}},
+            {"windows", std::move(windows)}};
+    }
+    Json applyUiCommand(const std::string& operation, const Json& args)
+    {
+        if (operation == "ui.state") return uiState();
+        if (operation == "ui.navigate") {
+            const auto page = args.at("page").get<std::string>();
+            if (page == "assistant") switchAssistant();
+            else switchPage(page == "performance");
+            if (args.contains("device_id")) activeDevice = args.at("device_id").get<std::string>();
+            if (args.contains("view")) graphMode = args.at("view") == "graphs";
+            return uiState();
+        }
+        if (operation == "ui.processes.configure") {
+            if (args.contains("query")) {
+                const auto query = args.at("query").get<std::string>();
+                std::snprintf(search, sizeof(search), "%s", query.c_str());
+            }
+            if (args.contains("category")) categoryFilter = args.at("category").get<int>();
+            if (args.contains("group_by_type")) groupByType = args.at("group_by_type").get<bool>();
+            if (args.contains("related")) treeMode = args.at("related").get<bool>();
+            if (args.contains("compact")) compactProcesses = args.at("compact").get<bool>();
+            if (args.contains("inspector")) showProcessInspector = args.at("inspector").get<bool>();
+            if (args.contains("sort_column")) sortColumn = args.at("sort_column").get<int>();
+            if (args.contains("descending")) sortDirection = args.at("descending").get<bool>() ? -1 : 1;
+            dirty = true;
+            switchPage(false);
+            return uiState();
+        }
+        if (operation == "ui.processes.select") {
+            const auto& requested = args.at("processes");
+            if (requested.size() > 100) throw Error("InvalidOptions", "Select at most 100 processes");
+            std::vector<Key> keys;
+            for (const auto& item : requested) {
+                Key key {item.at("pid").get<int>(), item.at("created").get<std::int64_t>()};
+                if (!find(key)) throw Error("NotFound", "Process not found or PID reused");
+                keys.push_back(key);
+            }
+            const auto mode = args.value("mode", std::string("replace"));
+            if (mode == "replace") selected.clear();
+            for (const auto& key : keys) {
+                if (mode == "remove") selected.erase(key);
+                else selected.insert(key);
+            }
+            switchPage(false);
+            return uiState();
+        }
+        if (operation == "ui.processes.expand" || operation == "ui.processes.inspect"
+            || operation == "ui.processes.trust" || operation == "ui.processes.open_location"
+            || operation == "ui.processes.copy") {
+            Key key {args.at("pid").get<int>(), args.at("created").get<std::int64_t>()};
+            const auto* process = find(key);
+            if (!process) throw Error("NotFound", "Process not found or PID reused");
+            if (operation == "ui.processes.trust") {
+                const auto score = trust.get(process->path);
+                return {{"pid", key.id}, {"score", score.score < 0 ? Json(nullptr) : Json(score.score)},
+                    {"state", static_cast<int>(score.state)}, {"label", score.label},
+                    {"explanation", score.explanation}};
+            }
+            if (operation == "ui.processes.open_location") {
+                if (process->path.empty()) throw Error("Unavailable", "Executable path unavailable");
+                const auto path = wide(process->path);
+                const auto parameter = L"/select,\"" + path + L"\"";
+                if (reinterpret_cast<std::intptr_t>(ShellExecuteW(nullptr, L"open", L"explorer.exe",
+                        parameter.c_str(), nullptr, SW_SHOWNORMAL)) <= 32)
+                    throw Error("Unavailable", "Explorer could not open the executable location");
+                return {{"opened", true}};
+            }
+            if (operation == "ui.processes.copy") {
+                const auto what = args.at("what").get<std::string>();
+                if (what == "path" && process->path.empty())
+                    throw Error("Unavailable", "Executable path unavailable");
+                const auto value = what == "path" ? process->path
+                    : process->name + " · PID " + std::to_string(process->id);
+                ImGui::SetClipboardText(value.c_str());
+                return {{"copied", true}, {"what", what}};
+            }
+            if (operation == "ui.processes.expand") {
+                if (args.at("expanded").get<bool>()) expanded.insert(key);
+                else expanded.erase(key);
+                treeMode = true;
+                dirty = true;
+            } else { focusProcess(*process); requestDetails(*process); }
+            return uiState();
+        }
+        if (operation == "ui.performance.configure") {
+            if (args.contains("view")) graphMode = args.at("view") == "graphs";
+            if (args.contains("device_id")) activeDevice = args.at("device_id").get<std::string>();
+            if (args.contains("columns")) graphColumnsMode = args.at("columns").get<int>();
+            if (args.contains("compact_cards")) compactGraphCards = args.at("compact_cards").get<bool>();
+            if (args.contains("extra_devices")) graphExtraDevices = args.at("extra_devices").get<bool>();
+            if (args.contains("show_cores")) showCores = args.at("show_cores").get<bool>();
+            if (args.contains("compact_cores")) compactCores = args.at("compact_cores").get<bool>();
+            switchPage(true);
+            return uiState();
+        }
+        if (operation == "ui.performance.history") {
+            const auto key = args.at("device_id").get<std::string>() + "/"
+                + args.at("metric_id").get<std::string>();
+            const auto found = histories.find(key);
+            if (found == histories.end()) throw Error("NotFound", "Graph metric is not available in this UI session");
+            const auto limit = static_cast<std::size_t>(args.value("limit", 60));
+            Json points = Json::array();
+            const auto begin = found->second.size() > limit ? found->second.size() - limit : 0;
+            for (std::size_t i = begin; i < found->second.size(); ++i)
+                points.push_back({{"timestamp_s", found->second[i].time},
+                    {"value", std::isfinite(found->second[i].value)
+                        ? Json(found->second[i].value) : Json(nullptr)}});
+            return {{"metric", key}, {"points", std::move(points)}};
+        }
+        if (operation == "ui.window.set") {
+            const auto target = args.at("target").get<std::string>();
+            if (target != "all" && std::none_of(snapshot.devices.begin(), snapshot.devices.end(),
+                    [&](const DeviceInfo& device) { return device.id == target; }))
+                throw Error("NotFound", "Device is not available in the current UI sample");
+            const bool open = args.at("open").get<bool>();
+            if (open) detached[target] = true;
+            else detached.erase(target);
+            if (!demoMode) bridge.send(performancePage || !detached.empty() ? "M 1\n" : "M 0\n");
+            return uiState();
+        }
+        if (operation == "ui.pause") {
+            paused = args.at("paused").get<bool>();
+            if (!demoMode) bridge.send(paused ? "P 1\n" : "P 0\n");
+            return uiState();
+        }
+        if (operation == "ui.scale") {
+            ui_scale::adjust(args.at("percent").get<int>() - ui_scale::percent());
+            return uiState();
+        }
+        throw Error("NotFound", "Unknown UI operation");
     }
     void receive()
     {
@@ -634,7 +799,7 @@ struct AppUi::State {
             else cyui::statusText(cyui::Tone::neutral, "Connexion au collecteur...");
             ImGui::SameLine();
             cyui::alignRight(cyui::dp(235.0f));
-            cyui::textFaint("Ctrl+1/2 · Ctrl+F · Ctrl/Maj");
+            cyui::textFaint("Ctrl+1/2/3 · Ctrl+F · Ctrl/Maj");
         }
         cyui::endStatusBar();
     }
@@ -645,9 +810,11 @@ struct AppUi::State {
             cyui::heading("CyWinTask", 3);
             if (demoMode && !compact) { ImGui::SameLine(); cyui::badge("DÉMO", cyui::Tone::warning); }
             ImGui::SameLine(0.0f, cyui::dp(compact ? 8.0f : 18.0f));
-            const char* pages[] { "Processus", "Performance" };
-            int page = performancePage ? 1 : 0;
-            if (cyui::segmented("##page", pages, 2, &page, cyui::dp(compact ? 190.0f : 250.0f))) switchPage(page == 1);
+            const char* pages[] { "Processus", "Performance", "Assistant" };
+            int page = assistantPage ? 2 : performancePage ? 1 : 0;
+            if (cyui::segmented("##page", pages, 3, &page, cyui::dp(compact ? 245.0f : 330.0f))) {
+                if (page == 2) switchAssistant(); else switchPage(page == 1);
+            }
             ImGui::SameLine();
             cyui::alignRight(cyui::dp(compact ? 175.0f : 245.0f));
             if (compact) {
@@ -1409,10 +1576,16 @@ struct AppUi::State {
         for (auto it = detached.begin(); it != detached.end();)
             it = it->second ? std::next(it) : detached.erase(it);
     }
+    void assistant()
+    {
+        if (!assistantPane) assistantPane = std::make_unique<AssistantPane>(demoMode, uiBridge);
+        assistantPane->draw();
+    }
 };
 
-AppUi::AppUi(ID3D11Device* device, const bool demoMode, const bool performanceAtStart)
-    : state_(new State(device, demoMode, performanceAtStart)) {}
+AppUi::AppUi(ID3D11Device* device, const bool demoMode, const bool performanceAtStart,
+             const bool assistantAtStart)
+    : state_(new State(device, demoMode, performanceAtStart, assistantAtStart)) {}
 AppUi::~AppUi() { delete state_; }
 void AppUi::frame()
 {
@@ -1424,9 +1597,15 @@ void AppUi::frame()
         if (ImGui::IsKeyPressed(ImGuiKey_0)) ui_scale::adjust(115 - ui_scale::percent());
         if (ImGui::IsKeyPressed(ImGuiKey_1)) state.switchPage(false);
         if (ImGui::IsKeyPressed(ImGuiKey_2)) state.switchPage(true);
+        if (ImGui::IsKeyPressed(ImGuiKey_3)) state.switchAssistant();
     }
     state.icons.beginFrame();
     state.receive();
+    state.uiBridge->drain([&state](const std::string& operation, const Json& args) {
+        if (!state.assistantPane || !state.assistantPane->allows(operation))
+            throw Error("AccessDenied", "UI tool permission was revoked");
+        return state.applyUiCommand(operation, args);
+    });
     state.topBar();
     state.statusBar();
     const auto* viewport = ImGui::GetMainViewport();
@@ -1435,9 +1614,13 @@ void AppUi::frame()
     ImGui::SetNextWindowViewport(viewport->ID);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
         | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
-    if (ImGui::Begin("##main", nullptr, flags))
-        state.performancePage ? state.performance() : state.processes();
+    if (ImGui::Begin("##main", nullptr, flags)) {
+        if (state.assistantPage) state.assistant();
+        else if (state.performancePage) state.performance();
+        else state.processes();
+    }
     ImGui::End();
     state.dialogs();
+    if (state.assistantPane) state.assistantPane->drawConfirmation();
     state.detachedWindows();
 }

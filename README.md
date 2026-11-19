@@ -12,17 +12,17 @@
     </td>
     <td width="300" align="right" valign="top">
       <p><sub>Application license</sub><br><a href="LICENSE"><strong>GNU AGPL v3.0</strong></a></p>
-      <p><sub>Version</sub><br><a href="VERSION.md"><strong>0.7.0</strong></a><br><strong>IN DEVELOPMENT</strong></p>
-      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe"><strong>Installer</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip"><strong>Portable ZIP</strong></a><br><sub>Windows x64</sub></p>
+      <p><sub>Version</sub><br><a href="VERSION.md"><strong>0.8.0</strong></a><br><strong>IN DEVELOPMENT</strong></p>
+      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-setup.exe"><strong>Installer</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-portable.zip"><strong>Portable ZIP</strong></a><br><sub>Windows x64</sub></p>
     </td>
   </tr>
 </table>
 
 <h1 align="center">CyWinTask</h1>
 
-CyWinTask is a Windows x64 task manager for inspecting running processes and following system activity in real time. Its distributed interface uses Dear ImGui, CyUI and Direct3D 11; a separate .NET 8 collector supplies Windows measurements.
+CyWinTask is a Windows x64 task manager for inspecting running processes and following system activity in real time. Its distributed interface uses Dear ImGui, CyUI and Direct3D 11; a separate .NET 8 collector supplies Windows measurements. CyMCPSDK powers the Assistant and MCP integration.
 
-> **IN DEVELOPMENT · 0.7.0**
+> **IN DEVELOPMENT · 0.8.0**
 >
 > The native Windows build is available for testing and analysis. Some Task Manager features remain unfinished; read the [version notes and known limitations](VERSION.md).
 
@@ -38,7 +38,7 @@ The **Performance** page shows CPU, physical and committed virtual memory, disks
 
 [![CyWinTask process table with expandable related-process groups and fictional demo data](docs/screenshots/processes.png)](docs/screenshots/processes.png)
 
-Both screenshots were captured directly from the current development build in CyWinTask's `--demo` mode with fictional processes and hardware values. The published 0.7.0 download may look different.
+Both screenshots were captured directly from CyWinTask's `--demo` mode with fictional processes and hardware values.
 
 ## Features
 
@@ -46,6 +46,7 @@ Both screenshots were captured directly from the current development build in Cy
 - **Compact monitoring:** CPU, RAM, GPU, disk and network cards, plus detailed graphs and detachable windows.
 - **Live measurements:** up to 60 seconds of samples; missing counters are shown as unavailable rather than invented.
 - **Adjustable interface:** display themes, compact or comfortable density, and zoom controls in the title bar.
+- **Assistant and automation:** integrated chat, standalone CLI and local MCP server for measurements, process inspection and UI control. Tool permissions are set individually in the Assistant tab; process termination still requires confirmation. See the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md).
 
 ---
 
@@ -53,28 +54,29 @@ Both screenshots were captured directly from the current development build in Cy
 
 The published application targets Windows x64. The installer is configured for Windows 10 or later. The .NET runtime needed by the collector is included; no separate .NET installation is needed for the downloaded builds.
 
-1. Download the [0.7.0 installer](https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-setup.exe) or [portable ZIP](https://github.com/MrMybal/CyWinTask/releases/download/v0.7.0/CyWinTask-0.7.0-win-x64-portable.zip).
+1. Download the [0.8.0 installer](https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-setup.exe) or [portable ZIP](https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-portable.zip).
 2. Run the installer, or extract the **entire** portable ZIP to a folder.
 3. Start `CyWinTask.exe`. For the portable build, keep the `bridge` folder beside it.
 
-The installer adds a Start menu shortcut and offers an optional desktop shortcut. CyWinTask does not replace Windows Task Manager or its keyboard shortcuts. See the [release and checksums](https://github.com/MrMybal/CyWinTask/releases/tag/v0.7.0).
+The installer adds a Start menu shortcut and offers an optional desktop shortcut. CyWinTask does not replace Windows Task Manager or its keyboard shortcuts. See the [release and checksums](https://github.com/MrMybal/CyWinTask/releases/tag/v0.8.0).
 
 ## Source, build and required libraries
 
 <details>
 <summary>Build the native application on Windows</summary>
 
-Install the .NET 8 SDK and Visual Studio 2022 with C++ tools, CMake and Ninja. Building also requires access to the **private** [CyUI repository](https://github.com/MrMybal/CyUI); the exact commit is recorded in [native/CYUI_REVISION](native/CYUI_REVISION). The CyUI checkout is not included in this source repository. Inno Setup 6 is needed only to build the installer.
+Install the .NET 8 SDK and Visual Studio 2022 with C++ tools, CMake and Ninja. Building also requires the **private** [CyUI repository](https://github.com/MrMybal/CyUI) and [CyMCPSDK](https://github.com/MrMybal/CyMCPSDK). Their exact commits are pinned in `native/`. Neither dependency is included in this source repository. Inno Setup 6 is needed only to build the installer.
 
 ```powershell
 git clone https://github.com/MrMybal/CyWinTask.git
 cd CyWinTask
 powershell -NoProfile -ExecutionPolicy Bypass -File native/Sync-CyUI.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File native/Sync-CyMCPSDK.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1
 ./dist-native/CyWinTask.exe
 ```
 
-`Build-Native.ps1 -Offline` uses locally cached NuGet packages. To build an installer and portable ZIP, run `packaging/Build-Release.ps1 -Version 0.7.0` with Inno Setup 6 available. The historical WPF interface remains in the source tree but is not the interface launched by the published 0.7.0 packages.
+`Build-Native.ps1 -Offline` uses locally cached NuGet packages; `-Checks` runs the local assistant checks. The build uses the revisions in [native/CYUI_REVISION](native/CYUI_REVISION) and [native/CYMCP_REVISION](native/CYMCP_REVISION) and also produces `CyWinTaskCli.exe`. The [integration guide](docs/CyMCPSDK.fr.md) documents commands and MCP connections. To build the installer and portable ZIP locally, run `packaging/Build-Release.ps1` with Inno Setup 6 available. The historical WPF interface remains in the source tree but is not launched by the published packages.
 
 </details>
 
@@ -88,6 +90,8 @@ CyWinTask uses the [GNU Affero General Public License v3.0](LICENSE). Third-part
 | --- | --- | --- |
 | [CyUI](https://github.com/MrMybal/CyUI) · pinned 1.2.0 source, private repository | MIT; `licenses/CyUI.txt` in the download | Native interface modules Core, Plots and Canvas. |
 | [Dear ImGui](https://github.com/ocornut/imgui) · bundled with CyUI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt); `licenses/Dear-ImGui.txt` in the download | Native interface rendering. |
+| [CyMCPSDK](https://github.com/MrMybal/CyMCPSDK) · pinned 0.7.0 source, private repository | `licenses/CyMCPSDK.txt` in the download | Assistant, tool registry, chat and MCP server. |
+| [nlohmann/json](https://github.com/nlohmann/json), [cpp-httplib](https://github.com/yhirose/cpp-httplib), [PicoSHA2](https://github.com/okdshin/PicoSHA2) · bundled with CyMCPSDK | Terms in `licenses/nlohmann-json.txt`, `licenses/cpp-httplib.txt` and `licenses/PicoSHA2.txt` | JSON, HTTP and hashing for the assistant integration. |
 | [stb text and layout headers](https://github.com/nothings/stb) · bundled with Dear ImGui | MIT **or** public domain at the user's choice; texts in `licenses/stb/` | Font rendering and text/layout helpers used by Dear ImGui. |
 | [.NET runtime](https://github.com/dotnet/runtime) · 8.0.31 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) and component notices | Bundled runtime for the separate collector. |
 | [System.Management](https://www.nuget.org/packages/System.Management/8.0.0) · 8.0.0 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) and component notices | Windows management data used by the collector. |

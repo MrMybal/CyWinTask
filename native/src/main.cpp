@@ -2,6 +2,7 @@
 #include "UiScale.h"
 
 #include <cyui/Core.h>
+#include <cyui/Locale.h>
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
@@ -148,7 +149,7 @@ LRESULT WINAPI windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPara
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
-    bool demoMode = false, performanceAtStart = false;
+    bool demoMode = false, performanceAtStart = false, assistantAtStart = false;
     std::string themeKey = "navy";
     cyui::Density density = cyui::Density::comfortable;
     std::wstring demoCapturePath;
@@ -157,6 +158,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         for (int i = 1; i < argumentCount; ++i) {
             demoMode |= std::wcscmp(arguments[i], L"--demo") == 0;
             performanceAtStart |= std::wcscmp(arguments[i], L"--performance") == 0;
+            assistantAtStart |= std::wcscmp(arguments[i], L"--assistant") == 0;
             if (std::wcscmp(arguments[i], L"--theme") == 0 && i + 1 < argumentCount) {
                 const std::wstring value = arguments[++i];
                 themeKey.assign(value.begin(), value.end());
@@ -209,12 +211,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     theme.density = density;
     theme.dpiScale = ui_scale::combinedDpi() * uiDpiMultiplier;
     cyui::apply(theme);
+    cyui::setLocale("fr");
     cyui::loadFonts();
     ImGui_ImplWin32_Init(window);
     ImGui_ImplDX11_Init(device, context);
     imguiReady = true;
     {
-        AppUi app(device, demoMode, performanceAtStart);
+        AppUi app(device, demoMode, performanceAtStart, assistantAtStart);
         bool done = false;
         int demoFrames = 0;
         while (!done) {
