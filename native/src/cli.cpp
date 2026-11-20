@@ -1,4 +1,5 @@
 #include "TaskService.h"
+#include "McpAccess.h"
 #include <algorithm>
 #include <atomic>
 #include <csignal>
@@ -17,9 +18,10 @@ void help()
               << "  CyWinTaskCli.exe describe NAME\n"
               << "  CyWinTaskCli.exe invoke NAME '{JSON}' [--allow-stop] [--allow-details]\n"
               << "  CyWinTaskCli.exe mcp [--allow-stop] [--allow-details]  (MCP over stdio)\n"
-              << "  CyWinTaskCli.exe serve [PORT] [--allow-stop] [--allow-details]  (loopback MCP HTTP)\n"
+              << "  CyWinTaskCli.exe serve [PORT] [--profile free|local_controlled|token_only|protected] [--allow-stop] [--allow-details]\n"
               << "  CyWinTaskCli.exe remote URL list|describe NAME|invoke NAME '{JSON}'\n"
-              << "Set CYWINTASK_MCP_TOKEN to a random 32+ character token for serve.\n"
+              << "HTTP serve defaults to Free: 127.0.0.1 address only, all registered operations.\n"
+              << "Token only and Protected require CYWINTASK_MCP_TOKEN (32+ characters).\n"
               << "Stopping a process also requires confirm:true and its creation timestamp.\n";
 }
 }
@@ -36,8 +38,7 @@ int main(int argc, char** argv)
             if (url.rfind("http://127.0.0.1:", 0) != 0 || url.find("/mcp") == std::string::npos)
                 throw Error("InvalidOptions", "Remote UI URL must be a 127.0.0.1 MCP endpoint");
             const char* token = std::getenv("CYWINTASK_MCP_TOKEN");
-            if (!token || !*token) throw Error("AuthenticationRequired", "Set CYWINTASK_MCP_TOKEN for the open UI instance");
-            McpClient client(url, token);
+            McpClient client(url, token ? token : "");
             client.connect();
             Json result;
             if (action == "list") result = client.list_tools();
@@ -72,22 +73,45 @@ int main(int argc, char** argv)
             std::cout << service.registry()->invoke(argv[2], arguments).dump() << '\n';
             return 0;
         }
-        McpServer server(*service.registry(), "CyWinTask");
-        if (command == "mcp") { server.serve_stdio(std::cin, std::cout); return 0; }
-        const char* rawToken = std::getenv("CYWINTASK_MCP_TOKEN");
-        if (!rawToken || std::string(rawToken).size() < 32)
-            throw Error("AuthenticationRequired", "Set CYWINTASK_MCP_TOKEN to a random 32+ character token");
+        if (command == "mcp") {
+            McpServer server(*service.registry(), "CyWinTask");
+            server.serve_stdio(std::cin, std::cout);
+            return 0;
+        }
+        LocalAccessProfile profile = LocalAccessProfile::free;
         int port = 0;
-        if (argc >= 3 && std::string(argv[2]) != "--allow-stop") port = std::stoi(argv[2]);
-        LocalHttpServer http(rawToken, [&](const Json& request, const CallContext& context) {
-            return server.handle(request, context);
-        });
-        port = http.start(port);
+        bool portSet = false;
+        for (int i = 2; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--profile" && i + 1 < argc) profile = mcp_access::parse(argv[++i]);
+            else if (arg == "--allow-stop" || arg == "--allow-details") continue;
+            else if (!portSet && !arg.empty() && arg[0] != '-') {
+                std::size_t parsed {};
+                port = std::stoi(arg, &parsed);
+                if (parsed != arg.size() || port < 0 || port > 65535)
+                    throw Error("InvalidOptions", "Invalid MCP port");
+                portSet = true;
+            } else throw Error("InvalidOptions", "Unknown serve option");
+        }
+        const auto access = local_access_settings(profile);
+        const char* rawToken = std::getenv("CYWINTASK_MCP_TOKEN");
+        if (access.require_token && (!rawToken || std::string(rawToken).size() < 32))
+            throw Error("AuthenticationRequired", "Set CYWINTASK_MCP_TOKEN to a random 32+ character token");
+        McpServer server(*(access.control_operations ? service.registry() : service.unrestrictedRegistry()), "CyWinTask");
+        auto endpoint = [&](const Json& request, const CallContext& context) {
+            auto call = context;
+            if (!access.control_operations) call.principal = unrestrictedMcpPrincipal;
+            return server.handle(request, call);
+        };
+        std::unique_ptr<LocalHttpServer> http = access.require_token
+            ? std::make_unique<LocalHttpServer>(rawToken, endpoint)
+            : std::make_unique<LocalHttpServer>(LocalHttpServer::UnauthenticatedLoopback{}, endpoint);
+        port = http->start(port);
         std::cerr << "MCP listening at http://127.0.0.1:" << port << "/mcp\n";
         std::signal(SIGINT, stop);
         std::signal(SIGTERM, stop);
         while (!stopped) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        http.stop();
+        http->stop();
         return 0;
     } catch (const Error& error) {
         std::cerr << Json{{"error", {{"code", error.code}, {"message", error.what()}}}}.dump() << '\n';

@@ -131,38 +131,63 @@ try:
 finally:
     if child.poll() is None: child.terminate()
 
-token = secrets.token_urlsafe(36)
-env = dict(os.environ, CYWINTASK_MCP_TOKEN=token)
-server = subprocess.Popen([str(cli), 'serve', '0'], stdin=subprocess.DEVNULL,
-    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=env,
-    creationflags=subprocess.CREATE_NO_WINDOW)
+def http_call(url, message, token=None):
+    message.setdefault('params', {})['_meta'] = {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientCapabilities': {},
+    }
+    headers = {'Content-Type': 'application/json',
+               'Accept': 'application/json, text/event-stream',
+               'MCP-Protocol-Version': '2026-07-28',
+               'Mcp-Method': message['method']}
+    if message['method'] == 'tools/call': headers['Mcp-Name'] = message['params']['name']
+    if token: headers['Authorization'] = 'Bearer ' + token
+    with urllib.request.urlopen(urllib.request.Request(url,
+        json.dumps(message).encode(), headers), timeout=10) as response:
+        return json.load(response)
+
+def result(reply):
+    value = reply['result']
+    assert not value.get('isError', False), value
+    if 'structuredContent' in value: return value['structuredContent']
+    return json.loads(value['content'][0]['text'])
+
+def start_http(profile=None, token=None):
+    env = dict(os.environ)
+    env.pop('CYWINTASK_MCP_TOKEN', None)
+    if token: env['CYWINTASK_MCP_TOKEN'] = token
+    args = [str(cli), 'serve', '0']
+    if profile: args += ['--profile', profile]
+    process = subprocess.Popen(args, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=env,
+        creationflags=subprocess.CREATE_NO_WINDOW)
+    line = process.stderr.readline()
+    assert line.startswith('MCP listening at http://127.0.0.1:'), line[:120]
+    return process, line.removeprefix('MCP listening at ').strip(), env
+
+server, url, env = start_http()
 try:
-    line = server.stderr.readline()
-    assert line.startswith('MCP listening at http://127.0.0.1:')
-    url = line.removeprefix('MCP listening at ').strip()
-    request = {'jsonrpc': '2.0', 'id': 20, 'method': 'server/discover',
-        'params': {'_meta': {'io.modelcontextprotocol/protocolVersion': '2026-07-28',
-                            'io.modelcontextprotocol/clientCapabilities': {}}}}
-    def post(auth):
-        headers = {'Content-Type': 'application/json',
-                   'Accept': 'application/json, text/event-stream',
-                   'MCP-Protocol-Version': '2026-07-28',
-                   'Mcp-Method': 'server/discover'}
-        if auth: headers['Authorization'] = 'Bearer ' + token
-        return urllib.request.urlopen(urllib.request.Request(url,
-            json.dumps(request).encode(), headers), timeout=5)
+    assert 'result' in http_call(url, {'jsonrpc': '2.0', 'id': 20,
+        'method': 'server/discover', 'params': {}})
+    assert 'process_count' in result(http_call(url, call(21, 'system.summary', {})))
+    free_rights = result(http_call(url, call(22, 'permissions.list', {})))
+    assert all(item['allowed'] for item in free_rights['items'])
+    child = start_child()
     try:
-        post(False)
-        raise AssertionError('Missing-token request was accepted')
-    except urllib.error.HTTPError as error:
-        assert error.code == 401
-    try:
-        with post(True) as response:
-            assert 'result' in json.load(response)
-    except urllib.error.HTTPError as error:
-        print('Authorized HTTP error:', error.code, error.read().decode()[:500])
-        raise
-    print('Loopback HTTP MCP authentication and discovery passed.')
+        created = None
+        for _ in range(50):
+            rows = result(http_call(url, call(32, 'process.list',
+                {'query': str(child.pid), 'limit': 100})))['items']
+            created = next((row['created'] for row in rows if row['pid'] == child.pid), None)
+            if created: break
+            time.sleep(0.1)
+        assert created, 'Owned test process did not appear in Free server snapshot'
+        stopped = result(http_call(url, call(23, 'process.terminate',
+            {'pid': child.pid, 'created': created})))
+        assert stopped['accepted'] and child.wait(timeout=5) is not None
+    finally:
+        if child.poll() is None: child.terminate()
+    print('Free HTTP MCP read and owned-process mutation without token passed.')
     remote = subprocess.run([str(cli), 'remote', url, 'list'], env=env,
                             text=True, capture_output=True, timeout=8)
     assert remote.returncode == 0 and 'system.summary' in remote.stdout
@@ -171,10 +196,48 @@ try:
     assert remote.returncode == 0 and 'inputSchema' in remote.stdout
     remote = subprocess.run([str(cli), 'remote', url, 'invoke', 'system.summary', '{}'], env=env,
                             text=True, capture_output=True, timeout=8)
-    remote_result = json.loads(remote.stdout)
-    assert remote.returncode == 0 and not remote_result.get('isError', False)
-    assert 'content' in remote_result or 'structuredContent' in remote_result
-    print('CLI connection to a running MCP instance passed.')
+    assert remote.returncode == 0 and not json.loads(remote.stdout).get('isError', False)
+    print('CLI remote connection without token passed.')
+finally:
+    server.terminate()
+    server.wait(timeout=5)
+
+server, url, _ = start_http('local_controlled')
+try:
+    assert 'process_count' in result(http_call(url, call(24, 'system.summary', {})))
+    assert http_call(url, call(25, 'process.terminate',
+        {'pid': 4, 'created': 1, 'confirm': True}))['result']['isError']
+    print('Local controlled address-only read and mutation denial passed.')
+finally:
+    server.terminate()
+    server.wait(timeout=5)
+
+token = secrets.token_urlsafe(36)
+server, url, _ = start_http('protected', token)
+try:
+    try:
+        http_call(url, {'jsonrpc': '2.0', 'id': 26, 'method': 'server/discover', 'params': {}})
+        raise AssertionError('Protected profile accepted a missing token')
+    except urllib.error.HTTPError as error:
+        assert error.code == 401
+    assert 'process_count' in result(http_call(url, call(27, 'system.summary', {}), token))
+    assert http_call(url, call(28, 'process.terminate',
+        {'pid': 4, 'created': 1, 'confirm': True}), token)['result']['isError']
+    print('Protected HTTP MCP requires token and keeps operation permissions.')
+finally:
+    server.terminate()
+    server.wait(timeout=5)
+
+server, url, _ = start_http('token_only', token)
+try:
+    try:
+        http_call(url, {'jsonrpc': '2.0', 'id': 29, 'method': 'server/discover', 'params': {}})
+        raise AssertionError('Token-only profile accepted a missing token')
+    except urllib.error.HTTPError as error:
+        assert error.code == 401
+    assert 'process_count' in result(http_call(url, call(30, 'system.summary', {}), token))
+    assert all(item['allowed'] for item in result(http_call(url, call(31, 'permissions.list', {}), token))['items'])
+    print('Token-only HTTP MCP requires token and permits registered operations.')
 finally:
     server.terminate()
     server.wait(timeout=5)

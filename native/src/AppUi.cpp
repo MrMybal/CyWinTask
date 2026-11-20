@@ -207,12 +207,20 @@ struct DisplayRow {
 }
 
 struct AppUi::State {
-    explicit State(ID3D11Device* device, const bool demo, const bool showPerformance, const bool showAssistant)
+    explicit State(ID3D11Device* device, const bool demo, const bool showPerformance,
+                   const bool showAssistant, const int mcpLocalPort)
         : icons(device), demoMode(demo), performancePage(showPerformance && !showAssistant), assistantPage(showAssistant)
     {
         if (demoMode) { fillDemo(); return; }
         if (!bridge.start()) { error = bridge.startupError(); return; }
         bridge.send(performancePage ? "M 1\n" : "M 0\n");
+        if (mcpLocalPort >= 0) {
+            assistantPage = true;
+            try {
+                assistantPane = std::make_unique<AssistantPane>(false, uiBridge);
+                assistantPane->startLocalMcp(mcpLocalPort);
+            } catch (const std::exception& ex) { error = cymcp::redact_error_message(ex.what()); }
+        }
     }
     ~State() { uiBridge->close(); }
     BridgeClient bridge;
@@ -1584,8 +1592,8 @@ struct AppUi::State {
 };
 
 AppUi::AppUi(ID3D11Device* device, const bool demoMode, const bool performanceAtStart,
-             const bool assistantAtStart)
-    : state_(new State(device, demoMode, performanceAtStart, assistantAtStart)) {}
+             const bool assistantAtStart, const int mcpLocalPort)
+    : state_(new State(device, demoMode, performanceAtStart, assistantAtStart, mcpLocalPort)) {}
 AppUi::~AppUi() { delete state_; }
 void AppUi::frame()
 {
@@ -1601,8 +1609,8 @@ void AppUi::frame()
     }
     state.icons.beginFrame();
     state.receive();
-    state.uiBridge->drain([&state](const std::string& operation, const Json& args) {
-        if (!state.assistantPane || !state.assistantPane->allows(operation))
+    state.uiBridge->drain([&state](const std::string& operation, const Json& args, bool unrestricted) {
+        if (!unrestricted && (!state.assistantPane || !state.assistantPane->allows(operation)))
             throw Error("AccessDenied", "UI tool permission was revoked");
         return state.applyUiCommand(operation, args);
     });

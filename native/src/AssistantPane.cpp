@@ -1,4 +1,5 @@
 #include "AssistantPane.h"
+#include "McpAccess.h"
 #include "TaskService.h"
 #include "UiBridge.h"
 #include "UiOperations.h"
@@ -60,6 +61,9 @@ struct AssistantPane::State {
     std::future<std::vector<DiscoveredConnection>> discovery;
     std::vector<DiscoveredConnection> detected;
     std::string providerId = "ollama", token, error;
+    cymcp::LocalAccessProfile accessProfile = cymcp::LocalAccessProfile::free;
+    std::filesystem::path accessConfigPath;
+    bool accessConfigValid = true;
     char model[128] {}, address[256] {}, keyEnvironment[80] {};
     bool saveHistory = false, restoreHistory = false;
     int contextKilobytes = 0;
@@ -68,6 +72,15 @@ struct AssistantPane::State {
     explicit State(bool demonstration, std::shared_ptr<UiBridge> uiBridge)
         : demo(demonstration), ui(std::move(uiBridge))
     {
+        if (!demo) {
+            try {
+                accessConfigPath = mcp_access::configPath();
+                accessProfile = mcp_access::load(accessConfigPath);
+            } catch (const std::exception& ex) {
+                accessConfigValid = false;
+                error = redact_error_message(ex.what());
+            }
+        }
         if (ui) registerUiOperations(tasks, ui);
         tasks.setConfirmation([this](const ProcessInfo& process, const CallContext& context) {
             auto pending = std::make_shared<PendingStop>();
@@ -163,15 +176,33 @@ struct AssistantPane::State {
         token.clear();
         port = 0;
     }
-    void startServer()
+    void startServer(int requestedPort = 0)
     {
         if (http) return;
+        if (demo) throw Error("Unavailable", "MCP is disabled in demo mode");
+        if (!accessConfigValid) throw Error("InvalidOptions", "Choose a valid MCP access profile first");
         if (!tasks.start()) throw Error("Unavailable", tasks.startupError());
-        token = random_token();
-        mcp = std::make_unique<McpServer>(*tasks.registry(), "CyWinTask");
-        auto server = std::make_unique<LocalHttpServer>(token,
-            [this](const Json& request, const CallContext& context) { return mcp->handle(request, context); });
-        port = server->start();
+        const auto access = local_access_settings(accessProfile);
+        token.clear();
+        if (access.require_token) {
+            if (const char* configured = std::getenv("CYWINTASK_MCP_TOKEN")) {
+                if (std::string(configured).size() < 32)
+                    throw Error("InvalidOptions", "CYWINTASK_MCP_TOKEN must contain at least 32 characters");
+                token = configured;
+            } else token = random_token();
+        }
+        mcp = std::make_unique<McpServer>(
+            *(access.control_operations ? tasks.registry() : tasks.unrestrictedRegistry()), "CyWinTask");
+        auto endpoint = [this, unrestricted = !access.control_operations]
+            (const Json& request, const CallContext& context) {
+                auto call = context;
+                if (unrestricted) call.principal = unrestrictedMcpPrincipal;
+                return mcp->handle(request, call);
+            };
+        auto server = access.require_token
+            ? std::make_unique<LocalHttpServer>(token, endpoint)
+            : std::make_unique<LocalHttpServer>(LocalHttpServer::UnauthenticatedLoopback{}, endpoint);
+        port = server->start(requestedPort);
         http = std::move(server);
     }
     std::optional<DiscoveredConnection> detectedProvider() const
@@ -286,7 +317,7 @@ struct AssistantPane::State {
             cyui::textColoured(cyui::palette().error, "%s", chat.state().error_message.c_str());
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Droits des outils")) {
-            cyui::textDim("Droits de cette session. Un arrêt demande toujours une confirmation par processus.");
+            cyui::textDim("Droits du chat et des profils MCP contrôlés. Free et Jeton seul autorisent tous les outils.");
             const auto catalogue = tasks.registry()->describe();
             if (cyui::button("Lecture seule", cyui::Variant::secondary)) {
                 for (const auto& entry : catalogue) {
@@ -315,6 +346,29 @@ struct AssistantPane::State {
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", entry.at("description").get<std::string>().c_str());
             }
         }
+        ImGui::TextUnformatted("Profil MCP");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(cyui::dp(180.0f));
+        if (ImGui::BeginCombo("##mcpAccessProfile", mcp_access::option(accessProfile).label)) {
+            for (const auto& choice : mcp_access::options) {
+                if (ImGui::Selectable(choice.label, choice.profile == accessProfile)) {
+                    try {
+                        mcp_access::save(accessConfigPath, choice.profile);
+                        accessProfile = choice.profile;
+                        accessConfigValid = true;
+                        error.clear();
+                        if (http) { stopServer(); startServer(); }
+                    } catch (const std::exception& ex) {
+                        stopServer(); error = redact_error_message(ex.what());
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (local_access_settings(accessProfile).require_token)
+            cyui::textDim("Jeton requis ; copier l'adresse et le jeton pour se connecter.");
+        else
+            cyui::textDim("Adresse seule sur 127.0.0.1 ; tout processus local peut appeler les outils autorisés.");
         bool exposed = http != nullptr;
         if (ImGui::Checkbox("Serveur MCP local", &exposed)) {
             try { error.clear(); if (exposed) startServer(); else stopServer(); }
@@ -325,8 +379,10 @@ struct AssistantPane::State {
             cyui::textDim("%s", url.c_str());
             ImGui::SameLine();
             if (cyui::button("Copier l'adresse", cyui::Variant::secondary)) ImGui::SetClipboardText(url.c_str());
-            ImGui::SameLine();
-            if (cyui::button("Copier le jeton", cyui::Variant::secondary)) ImGui::SetClipboardText(token.c_str());
+            if (!token.empty()) {
+                ImGui::SameLine();
+                if (cyui::button("Copier le jeton", cyui::Variant::secondary)) ImGui::SetClipboardText(token.c_str());
+            }
         }
         ImGui::EndDisabled();
         ImGui::Separator();
@@ -342,3 +398,8 @@ AssistantPane::~AssistantPane() = default;
 void AssistantPane::draw() { state_->draw(); }
 void AssistantPane::drawConfirmation() { state_->drawConfirmation(); }
 bool AssistantPane::allows(const std::string& operation) const { return state_->tasks.isAllowed(operation); }
+void AssistantPane::startLocalMcp(int port)
+{
+    try { state_->startServer(port); }
+    catch (...) { state_->stopServer(); throw; }
+}

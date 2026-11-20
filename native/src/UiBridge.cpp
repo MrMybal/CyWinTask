@@ -1,4 +1,5 @@
 #include "UiBridge.h"
+#include "TaskService.h"
 #include <algorithm>
 #include <chrono>
 
@@ -8,6 +9,7 @@ cymcp::Json UiBridge::invoke(std::string operation, cymcp::Json arguments,
     auto request = std::make_shared<Request>();
     request->operation = std::move(operation);
     request->arguments = std::move(arguments);
+    request->unrestricted = context.principal == unrestrictedMcpPrincipal;
     std::unique_lock lock(mutex_);
     if (closed_) throw cymcp::Error("Unavailable", "The UI is closing");
     queue_.push_back(request);
@@ -43,7 +45,7 @@ void UiBridge::drain(const Handler& handler)
                 std::lock_guard lock(mutex_);
                 if (request->cancelled) throw cymcp::Error("Cancelled", "UI command cancelled");
             }
-            request->result = handler(request->operation, request->arguments);
+            request->result = handler(request->operation, request->arguments, request->unrestricted);
         }
         catch (...) { request->error = std::current_exception(); }
         {

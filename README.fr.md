@@ -12,8 +12,8 @@
     </td>
     <td width="300" align="right" valign="top">
       <p><sub>Licence de l’application</sub><br><a href="LICENSE"><strong>GNU AGPL v3.0</strong></a></p>
-      <p><sub>Version</sub><br><a href="VERSION.fr.md"><strong>0.8.0</strong></a><br><strong>EN DÉVELOPPEMENT</strong></p>
-      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-setup.exe"><strong>Installateur</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-portable.zip"><strong>ZIP portable</strong></a><br><sub>Windows x64</sub></p>
+      <p><sub>Version</sub><br><a href="VERSION.fr.md"><strong>0.9.0</strong></a><br><strong>EN DÉVELOPPEMENT</strong></p>
+      <p><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.9.0/CyWinTask-0.9.0-win-x64-setup.exe"><strong>Installateur</strong></a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.9.0/CyWinTask-0.9.0-win-x64-portable.zip"><strong>ZIP portable</strong></a><br><sub>Windows x64</sub></p>
     </td>
   </tr>
 </table>
@@ -22,7 +22,7 @@
 
 CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processus et suivre l’activité du système en temps réel. L’interface distribuée utilise Dear ImGui, CyUI et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows. CyMCPSDK assure l'intégration de l'Assistant et de MCP.
 
-> **EN DÉVELOPPEMENT · 0.8.0**
+> **EN DÉVELOPPEMENT · 0.9.0**
 >
 > La version native Windows est disponible pour les essais et l’analyse. Certaines fonctions du Gestionnaire de tâches restent à développer ; consulter les [notes de version et limites connues](VERSION.fr.md).
 
@@ -46,7 +46,7 @@ Les deux captures proviennent directement du mode `--demo` de CyWinTask, avec de
 - **Surveillance compacte :** cartes CPU, RAM, GPU, disque et réseau, graphiques détaillés et fenêtres détachables.
 - **Mesures en direct :** jusqu’à 60 secondes d’historique ; les compteurs manquants sont indiqués comme indisponibles.
 - **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre supérieure.
-- **Assistant et automatisation :** chat intégré, CLI autonome et serveur MCP local pour les mesures, l'inspection des processus et le contrôle de l'interface. Chaque outil possède son propre droit dans l'onglet Assistant ; l'arrêt d'un processus demande toujours confirmation. Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md).
+- **Assistant et automatisation :** chat intégré, CLI autonome et serveur MCP local pour les mesures, l'inspection des processus et le contrôle de l'interface. Quatre profils MCP locaux sont disponibles. Le profil Free par défaut accepte une connexion par adresse seule depuis les processus locaux et autorise tous les outils enregistrés sans confirmation supplémentaire ; le chat et les profils contrôlés conservent les droits individuels. Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md).
 
 ---
 
@@ -54,11 +54,11 @@ Les deux captures proviennent directement du mode `--demo` de CyWinTask, avec de
 
 L’application publiée cible Windows x64. L’installateur est configuré pour Windows 10 ou plus récent. Le runtime .NET nécessaire au collecteur est inclus : les téléchargements ne nécessitent pas d’installation .NET séparée.
 
-1. Télécharger l’[installateur 0.8.0](https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-setup.exe) ou le [ZIP portable](https://github.com/MrMybal/CyWinTask/releases/download/v0.8.0/CyWinTask-0.8.0-win-x64-portable.zip).
+1. Télécharger l’[installateur 0.9.0](https://github.com/MrMybal/CyWinTask/releases/download/v0.9.0/CyWinTask-0.9.0-win-x64-setup.exe) ou le [ZIP portable](https://github.com/MrMybal/CyWinTask/releases/download/v0.9.0/CyWinTask-0.9.0-win-x64-portable.zip).
 2. Lancer l’installateur ou extraire le ZIP portable **entièrement** dans un dossier.
 3. Démarrer `CyWinTask.exe`. Pour le portable, conserver le dossier `bridge` à côté de l’exécutable.
 
-L’installateur ajoute un raccourci au menu Démarrer et propose un raccourci bureau. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis clavier. Voir la [version publiée et ses sommes de contrôle](https://github.com/MrMybal/CyWinTask/releases/tag/v0.8.0).
+L’installateur ajoute un raccourci au menu Démarrer et propose un raccourci bureau. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis clavier. Voir la [version publiée et ses sommes de contrôle](https://github.com/MrMybal/CyWinTask/releases/tag/v0.9.0).
 
 ## Sources, compilation et bibliothèques nécessaires
 
@@ -76,7 +76,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1
 ./dist-native/CyWinTask.exe
 ```
 
-`Build-Native.ps1 -Offline` utilise les paquets NuGet déjà présents dans le cache local ; `-Checks` exécute les contrôles locaux de l'assistant. Le build utilise les révisions indiquées dans [native/CYUI_REVISION](native/CYUI_REVISION) et [native/CYMCP_REVISION](native/CYMCP_REVISION) et produit aussi `CyWinTaskCli.exe`. Le [guide d'intégration](docs/CyMCPSDK.fr.md) décrit les commandes et les connexions MCP. Pour construire localement l'installateur et le ZIP portable, lancer `packaging/Build-Release.ps1` avec Inno Setup 6 disponible. L'ancienne interface WPF reste dans les sources, mais les paquets publiés lancent l'interface native.
+`Build-Native.ps1 -Offline` utilise les paquets NuGet déjà présents dans le cache local ; `-Checks` exécute les contrôles locaux de l'assistant. La version actuelle des sources utilise les révisions indiquées dans [native/CYUI_REVISION](native/CYUI_REVISION) et [native/CYMCP_REVISION](native/CYMCP_REVISION) et produit aussi `CyWinTaskCli.exe`. Le [guide d'intégration](docs/CyMCPSDK.fr.md) décrit les commandes et les connexions MCP. Pour construire localement l'installateur et le ZIP portable, lancer `packaging/Build-Release.ps1` avec Inno Setup 6 disponible. L'ancienne interface WPF reste dans les sources, mais les paquets publiés lancent l'interface native.
 
 </details>
 
@@ -90,7 +90,7 @@ CyWinTask utilise la [licence publique générale GNU Affero v3.0](LICENSE). Les
 | --- | --- | --- |
 | [CyUI](https://github.com/MrMybal/CyUI) · sources 1.2.0 figées, dépôt privé | MIT ; `licenses/CyUI.txt` dans le téléchargement | Modules d’interface natifs Core, Plots et Canvas. |
 | [Dear ImGui](https://github.com/ocornut/imgui) · intégré à CyUI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) ; `licenses/Dear-ImGui.txt` dans le téléchargement | Rendu de l’interface native. |
-| [CyMCPSDK](https://github.com/MrMybal/CyMCPSDK) · sources 0.7.0 figées, dépôt privé | `licenses/CyMCPSDK.txt` dans le téléchargement | Assistant, registre d'outils, chat et serveur MCP. |
+| [CyMCPSDK](https://github.com/MrMybal/CyMCPSDK) · sources 0.7.2 figées, dépôt privé | `licenses/CyMCPSDK.txt` dans le téléchargement | Assistant, registre d'outils, chat et serveur MCP. |
 | [nlohmann/json](https://github.com/nlohmann/json), [cpp-httplib](https://github.com/yhirose/cpp-httplib), [PicoSHA2](https://github.com/okdshin/PicoSHA2) · intégrés à CyMCPSDK | Textes dans `licenses/nlohmann-json.txt`, `licenses/cpp-httplib.txt` et `licenses/PicoSHA2.txt` | JSON, HTTP et hachage pour l'Assistant. |
 | [En-têtes stb de texte et de disposition](https://github.com/nothings/stb) · intégrés à Dear ImGui | MIT **ou** domaine public, au choix ; textes dans `licenses/stb/` | Rendu des polices et aides de texte/disposition de Dear ImGui. |
 | [Runtime .NET](https://github.com/dotnet/runtime) · 8.0.31 | [MIT](https://github.com/dotnet/runtime/blob/main/LICENSE.TXT) et notices des composants | Runtime inclus pour le collecteur séparé. |

@@ -82,12 +82,12 @@ add_subdirectory("${CYMCP_ROOT}" "${CMAKE_BINARY_DIR}/cymcp")
 file(GLOB CYWINTASK_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
 set_source_files_properties(
     src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp
-    src/AssistantPane.cpp src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp
+    src/AssistantPane.cpp src/McpAccess.cpp src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp
     src/UiScale.cpp src/cli.cpp tests/AssistantIntegration.cpp tests/UiControlIntegration.cpp
     PROPERTIES OBJECT_DEPENDS "${CYWINTASK_HEADERS}")
 
 add_executable(CyWinTask WIN32
-    src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp src/AssistantPane.cpp
+    src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp src/AssistantPane.cpp src/McpAccess.cpp
     src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp src/UiScale.cpp src/resources.rc
     "${IMGUI_DIR}/backends/imgui_impl_win32.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
@@ -96,20 +96,20 @@ target_compile_options(CyWinTask PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTask PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(CyWinTask PRIVATE CyUI::Core CyUI::Plots CyMCP::ChatUI CyMCP::MCP d3d11 dxgi d3dcompiler dwmapi shell32 gdi32 user32 advapi32 wintrust comdlg32)
 
-add_executable(CyWinTaskCli src/cli.cpp src/TaskService.cpp src/BridgeClient.cpp)
+add_executable(CyWinTaskCli src/cli.cpp src/McpAccess.cpp src/TaskService.cpp src/BridgeClient.cpp)
 target_compile_options(CyWinTaskCli PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTaskCli PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(CyWinTaskCli PRIVATE CyMCP::MCP)
 
 add_executable(CyWinTaskAssistantChecks EXCLUDE_FROM_ALL
-    tests/AssistantIntegration.cpp src/TaskService.cpp src/BridgeClient.cpp)
+    tests/AssistantIntegration.cpp src/McpAccess.cpp src/TaskService.cpp src/BridgeClient.cpp)
 target_compile_options(CyWinTaskAssistantChecks PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTaskAssistantChecks PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(CyWinTaskAssistantChecks PRIVATE CyMCP::ChatUI CyMCP::MCP)
 
 add_executable(CyWinTaskUiChecks EXCLUDE_FROM_ALL
     tests/UiControlIntegration.cpp src/UiBridge.cpp src/UiOperations.cpp
-    src/TaskService.cpp src/BridgeClient.cpp)
+    src/McpAccess.cpp src/TaskService.cpp src/BridgeClient.cpp)
 target_compile_options(CyWinTaskUiChecks PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTaskUiChecks PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(CyWinTaskUiChecks PRIVATE CyMCP::MCP)

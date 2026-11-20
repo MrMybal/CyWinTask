@@ -153,12 +153,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     std::string themeKey = "navy";
     cyui::Density density = cyui::Density::comfortable;
     std::wstring demoCapturePath;
+    int mcpLocalPort = -1;
     int argumentCount {};
     if (auto** arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount)) {
         for (int i = 1; i < argumentCount; ++i) {
             demoMode |= std::wcscmp(arguments[i], L"--demo") == 0;
             performanceAtStart |= std::wcscmp(arguments[i], L"--performance") == 0;
             assistantAtStart |= std::wcscmp(arguments[i], L"--assistant") == 0;
+            if (std::wcscmp(arguments[i], L"--mcp-local") == 0 && i + 1 < argumentCount) {
+                wchar_t* end {};
+                const long requested = std::wcstol(arguments[++i], &end, 10);
+                if (*end != L'\0' || requested < 0 || requested > 65535) {
+                    LocalFree(arguments);
+                    return 2;
+                }
+                mcpLocalPort = static_cast<int>(requested);
+            }
             if (std::wcscmp(arguments[i], L"--theme") == 0 && i + 1 < argumentCount) {
                 const std::wstring value = arguments[++i];
                 themeKey.assign(value.begin(), value.end());
@@ -217,7 +227,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     ImGui_ImplDX11_Init(device, context);
     imguiReady = true;
     {
-        AppUi app(device, demoMode, performanceAtStart, assistantAtStart);
+        AppUi app(device, demoMode, performanceAtStart, assistantAtStart, mcpLocalPort);
         bool done = false;
         int demoFrames = 0;
         while (!done) {

@@ -9,6 +9,8 @@
 #include <memory>
 #include <mutex>
 
+inline constexpr const char* unrestrictedMcpPrincipal = "cywintask-unrestricted-mcp";
+
 // A headless connection to CyWinTask's existing Windows collector. The same
 // operation registry is used by the chat, CLI and MCP server.
 class TaskService {
@@ -25,10 +27,12 @@ public:
         { confirmation_ = std::move(callback); }
     bool stopAllowed() const { return isAllowed("process.terminate"); }
     std::shared_ptr<cymcp::Registry> registry() const { return registry_; }
+    std::shared_ptr<cymcp::Registry> unrestrictedRegistry() const { return unrestrictedRegistry_; }
     const std::string& startupError() const { return bridge_.startupError(); }
 private:
     BridgeClient bridge_;
     std::shared_ptr<cymcp::Registry> registry_;
+    std::shared_ptr<cymcp::Registry> unrestrictedRegistry_;
     std::atomic_bool running_ {false};
     mutable std::mutex permissionMutex_;
     std::map<std::string, bool> grants_;

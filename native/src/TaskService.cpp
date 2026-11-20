@@ -42,23 +42,31 @@ TaskService::TaskService()
     : registry_(std::make_shared<cymcp::Registry>(cymcp::Policy(
           [this](const CallContext&, const std::string& name, const Json&) {
               return isAllowed(name) ? cymcp::Decision::allow : cymcp::Decision::deny;
-          })))
+          }))),
+      unrestrictedRegistry_(std::make_shared<cymcp::Registry>(cymcp::Policy::allow_all()))
 {
-    registry_->add({"permissions.list", "Read which CyWinTask operations the user currently permits in this instance.",
+    const auto add = [this](cymcp::Operation operation) {
+        auto unrestricted = operation;
+        if (unrestricted.name == "process.terminate")
+            unrestricted.input_schema["required"] = {"pid", "created"};
+        unrestrictedRegistry_->add(std::move(unrestricted));
+        registry_->add(std::move(operation));
+    };
+    add({"permissions.list", "Read which CyWinTask operations the current access profile permits.",
         {{"type", "object"}, {"additionalProperties", false}},
         {{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}}}}}
         }}, {"required", {"items"}}},
-        true, [this](const Json&, const CallContext&) {
+        true, [this](const Json&, const CallContext& context) {
             Json items = Json::array();
             for (const auto& operation : registry_->describe()) {
                 const auto name = operation.at("name").get<std::string>();
-                items.push_back({{"name", name}, {"allowed", isAllowed(name)},
+                items.push_back({{"name", name}, {"allowed", context.principal == unrestrictedMcpPrincipal || isAllowed(name)},
                     {"read_only", operation.at("annotations").at("readOnlyHint")}});
             }
             return Json{{"items", std::move(items)}};
         }});
-    registry_->add({"system.summary", "Read the latest CPU, physical memory and process count from CyWinTask.",
+    add({"system.summary", "Read the latest CPU, physical memory and process count from CyWinTask.",
         {{"type", "object"}, {"additionalProperties", false}},
         {{"type", "object"}, {"properties", {
             {"timestamp_ms", {{"type", "integer"}}}, {"cpu_percent", percentage},
@@ -71,7 +79,7 @@ TaskService::TaskService()
                 {"memory_used_gb", s->memoryUsedGb}, {"memory_total_gb", s->memoryTotalGb},
                 {"process_count", s->processes.size()}};
         }});
-    registry_->add({"system.devices", "Read current CPU, memory, GPU, disk or network device metrics; filter by kind and paginate.",
+    add({"system.devices", "Read current CPU, memory, GPU, disk or network device metrics; filter by kind and paginate.",
         {{"type", "object"}, {"properties", {
             {"kind", {{"type", "string"}, {"maxLength", 64}}},
             {"offset", {{"type", "integer"}, {"minimum", 0}, {"maximum", 100000000}}},
@@ -110,7 +118,7 @@ TaskService::TaskService()
             return Json{{"timestamp_ms", s->unixMs}, {"total", matched},
                 {"offset", offset}, {"items", std::move(items)}};
         }});
-    registry_->add({"process.list", "Find running processes by name or PID; paginate results before inspecting one process.",
+    add({"process.list", "Find running processes by name or PID; paginate results before inspecting one process.",
         {{"type", "object"}, {"properties", {
             {"query", {{"type", "string"}, {"maxLength", 128}}},
             {"offset", {{"type", "integer"}, {"minimum", 0}}},
@@ -135,7 +143,7 @@ TaskService::TaskService()
             }
             return Json{{"total", matched}, {"offset", offset}, {"items", std::move(items)}};
         }});
-    registry_->add({"process.get", "Inspect one running process using its PID and optional creation timestamp to reject PID reuse.",
+    add({"process.get", "Inspect one running process using its PID and optional creation timestamp to reject PID reuse.",
         {{"type", "object"}, {"properties", {
             {"pid", {{"type", "integer"}, {"minimum", 1}}},
             {"created", {{"type", "integer"}, {"minimum", 1}}}
@@ -151,7 +159,7 @@ TaskService::TaskService()
                 throw Error("NotFound", "Process not found or PID reused");
             return Json{{"process", row(*found, true)}};
         }});
-    registry_->add({"process.details", "Read a bounded page of the application's advanced process report, including loaded modules when accessible.",
+    add({"process.details", "Read a bounded page of the application's advanced process report, including loaded modules when accessible.",
         {{"type", "object"}, {"properties", {
             {"pid", {{"type", "integer"}, {"minimum", 1}}},
             {"created", {{"type", "integer"}, {"minimum", 1}}},
@@ -189,7 +197,7 @@ TaskService::TaskService()
                 {"text", reply.text.substr(start, end - start)},
                 {"next_offset", end < reply.text.size() ? Json(end) : Json(nullptr)}};
         }});
-    registry_->add({"process.terminate", "Stop one process after explicit confirmation; requires a matching PID and creation timestamp. Never stops descendants implicitly.",
+    add({"process.terminate", "Stop one process using a matching PID and creation timestamp. Never stops descendants implicitly.",
         {{"type", "object"}, {"properties", {
             {"pid", {{"type", "integer"}, {"minimum", 1}}},
             {"created", {{"type", "integer"}, {"minimum", 1}}},
@@ -198,7 +206,11 @@ TaskService::TaskService()
         {{"type", "object"}, {"properties", {{"accepted", {{"type", "boolean"}}}}},
             {"required", {"accepted"}}},
         false, [this](const Json& args, const CallContext& context) {
-            if (!args.at("confirm").get<bool>()) throw Error("ConfirmationRequired", "Explicit confirm:true is required");
+            if (context.principal == unrestrictedMcpPrincipal) {
+                if (args.contains("confirm") && !args.at("confirm").get<bool>())
+                    throw Error("ConfirmationRequired", "Explicit confirm:false refused the stop");
+            } else if (!args.at("confirm").get<bool>())
+                throw Error("ConfirmationRequired", "Explicit confirm:true is required");
             const auto s = snapshot(context);
             const int pid = args.at("pid").get<int>();
             const auto found = std::find_if(s->processes.begin(), s->processes.end(),
@@ -208,7 +220,7 @@ TaskService::TaskService()
             const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             if (now - s->unixMs > 3000) throw Error("StaleSnapshot", "Process sample is too old");
-            if (confirmation_ && !confirmation_(*found, context))
+            if (confirmation_ && context.principal != unrestrictedMcpPrincipal && !confirmation_(*found, context))
                 throw Error("ConfirmationRequired", "Process stop was not approved by the user");
             const auto reply = request('E', *found, context);
             if (!reply.success) throw Error("ProcessError", reply.text);

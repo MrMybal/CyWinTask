@@ -12,6 +12,7 @@ public:
     void draw();
     void drawConfirmation();
     bool allows(const std::string& operation) const;
+    void startLocalMcp(int port = 0);
 private:
     struct State;
     std::unique_ptr<State> state_;

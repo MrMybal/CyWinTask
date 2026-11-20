@@ -13,11 +13,13 @@ void registerUiOperations(TaskService& service, const std::shared_ptr<UiBridge>&
         Json input = {{"type", "object"}, {"properties", std::move(properties)},
                       {"additionalProperties", false}};
         if (!required.empty()) input["required"] = std::move(required);
-        service.registry()->add({name, description, std::move(input), {{"type", "object"}},
+        cymcp::Operation operation {name, description, std::move(input), {{"type", "object"}},
             readOnly, [bridge, operation = std::string(name)](const Json& args,
                                                            const cymcp::CallContext& context) {
                 return bridge->invoke(operation, args, context);
-            }});
+            }};
+        service.unrestrictedRegistry()->add(operation);
+        service.registry()->add(std::move(operation));
     };
     const Json boolean = {{"type", "boolean"}};
     const Json identity = {{"type", "object"}, {"properties", {
