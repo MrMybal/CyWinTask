@@ -4,6 +4,7 @@
 /dist/
 /dist-native/
 /artifacts/
+/Bridge/.nuget/
 /native/build/
 /native/build-ninja/
 /third_party/CyUI/

@@ -1,6 +1,6 @@
 # Assistant, CLI et MCP
 
-L'Assistant, le CLI et les quatre profils d'accès MCP décrits ci-dessous sont disponibles dans CyWinTask 0.9.0.
+L'Assistant, le CLI et les quatre profils d'accès MCP décrits ci-dessous sont disponibles dans CyWinTask depuis la version 0.9.0.
 
 ## Compilation et versions
 
@@ -38,15 +38,15 @@ Ces opérations sont disponibles dans le chat intégré et sur le serveur MCP **
 | Opération | Action |
 | --- | --- |
 | `ui.state` | Lire page, filtres, sélection, disposition, périphériques et fenêtres ouvertes. |
-| `ui.navigate` | Ouvrir Processus, Performance ou Assistant, choisir une vue ou un périphérique. |
-| `ui.processes.configure` | Régler recherche, type, regroupement, arbre, densité, inspection et tri. |
+| `ui.navigate` | Ouvrir Processus, Performance, Assistant, Console, Températures ou Informations système ; choisir une vue ou un périphérique. |
+| `ui.processes.configure` | Choisir la liste générale ou le sous onglet GPU (`view: "all"` ou `"gpu"`), puis régler recherche, type, regroupement, arbre, densité, inspection et tri. |
 | `ui.processes.select` | Sélectionner plusieurs processus, ajouter ou retirer des lignes. |
 | `ui.processes.expand` | Déplier ou replier une branche de processus associés. |
 | `ui.processes.inspect` | Ouvrir le rapport avancé d'un processus. |
 | `ui.processes.trust` | Lire la note de confiance locale d'un processus. |
 | `ui.processes.open_location` | Ouvrir son fichier dans l'Explorateur. |
 | `ui.processes.copy` | Copier son chemin ou son nom et PID. |
-| `ui.performance.configure` | Régler vue, colonnes, cartes et graphes de cœurs CPU. |
+| `ui.performance.configure` | Régler vue, colonnes, disposition en cartes ou lignes, et graphes de cœurs CPU. |
 | `ui.performance.history` | Lire jusqu'à 120 points déjà mesurés pour une courbe. |
 | `ui.window.set` | Ouvrir ou fermer le tableau de bord ou un graphique détaché. |
 | `ui.pause` | Mettre en pause ou reprendre les mesures affichées. |

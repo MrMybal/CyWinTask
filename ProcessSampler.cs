@@ -124,11 +124,14 @@ public static class ProcessActions
     }
     public static string GetPath(ProcessSample sample)
     { using var handle = Open(sample, 0); var path = new StringBuilder(32768); int size = path.Capacity; if (!QueryFullProcessImageName(handle, 0, path, ref size)) throw new Win32Exception(Marshal.GetLastWin32Error()); return path.ToString(); }
-    public static string Describe(ProcessSample sample)
+    public static string Describe(ProcessSample sample, bool english = false)
     {
         using var handle = Open(sample, 0);
         var path = new StringBuilder(32768); int size = path.Capacity;
-        string executable = QueryFullProcessImageName(handle, 0, path, ref size) ? path.ToString() : "Accès au chemin indisponible";
+        string executable = QueryFullProcessImageName(handle, 0, path, ref size) ? path.ToString()
+            : english ? "Path unavailable" : "Accès au chemin indisponible";
+        if (english)
+            return $"{sample.Name}  ·  PID {sample.Id}  ·  Parent PID {sample.ParentId}\nExecutable: {executable}\nStarted: {DateTime.FromFileTimeUtc(sample.Created).ToLocalTime():G}\nWorking set: {sample.WorkingSet / 1048576d:N1} MB  ·  Threads: {sample.Threads}  ·  Handles: {sample.Handles}\nSnapshot taken when the inspector opened. Protected processes may restrict access.";
         return $"{sample.Name}  ·  PID {sample.Id}  ·  PID parent {sample.ParentId}\nExécutable : {executable}\nDémarré le {DateTime.FromFileTimeUtc(sample.Created).ToLocalTime():G}\nMémoire résidente : {sample.WorkingSet / 1048576d:N1} Mo  ·  Threads : {sample.Threads}  ·  Handles : {sample.Handles}\nInstantané à l’ouverture de l’inspecteur. Les processus protégés peuvent limiter l’accès.";
     }
     [DllImport("kernel32.dll", SetLastError = true)] private static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int id);

@@ -10,5 +10,5 @@
     <Version>0.6.0</Version>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;dist\**;Tests\**;Bridge\**;native\**;third_party\**;.cyrevision\**</DefaultItemExcludes>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="System.Management" Version="8.0.0" /><Resource Include="Assets\cywintask.ico" /><Resource Include="Assets\cywintask-logo-transparent.png" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.Management" Version="10.0.2" /><PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" /><Resource Include="Assets\cywintask.ico" /><Resource Include="Assets\cywintask-logo-transparent.png" /></ItemGroup>
 </Project>

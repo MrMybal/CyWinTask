@@ -1,5 +1,6 @@
 #include "AssistantPane.h"
 #include "McpAccess.h"
+#include "UiLocale.h"
 #include "TaskService.h"
 #include "UiBridge.h"
 #include "UiOperations.h"
@@ -28,7 +29,7 @@ ChatPanelOptions chatPanelOptions()
         wchar_t selected[32768] {};
         OPENFILENAMEW dialog {sizeof(dialog)};
         dialog.hwndOwner = GetActiveWindow();
-        dialog.lpstrFilter = L"Tous les fichiers\0*.*\0\0";
+        dialog.lpstrFilter = ui_locale::french() ? L"Tous les fichiers\0*.*\0\0" : L"All files\0*.*\0\0";
         dialog.lpstrFile = selected;
         dialog.nMaxFile = static_cast<DWORD>(std::size(selected));
         dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -124,7 +125,7 @@ struct AssistantPane::State {
             while (!pendingStops.empty() && pendingStops.front()->done) pendingStops.pop_front();
             if (!pendingStops.empty()) pending = pendingStops.front();
         }
-        constexpr const char* title = "Confirmer l'arrêt du processus##assistantStop";
+        const char* title = ui_locale::tr("Confirmer l'arrêt du processus##assistantStop");
         if (!pending) {
             if (confirmationOpen && ImGui::BeginPopupModal(title)) {
                 ImGui::CloseCurrentPopup();
@@ -145,16 +146,16 @@ struct AssistantPane::State {
             }
             return;
         }
-        ImGui::TextUnformatted("Un outil demande l'arrêt de ce processus :");
+        ImGui::TextUnformatted(ui_locale::tr("Un outil demande l'arrêt de ce processus :"));
         ImGui::Text("%s  (PID %d)", pending->name.c_str(), pending->pid);
-        ImGui::TextWrapped("CyWinTask vérifiera encore son identité avant l'arrêt.");
+        ImGui::TextWrapped(ui_locale::tr("CyWinTask vérifiera encore son identité avant l'arrêt."));
         ImGui::Spacing();
         bool approved = false, answered = false;
-        if (cyui::button("Arrêter ce processus", cyui::Variant::danger)) {
+        if (cyui::button(ui_locale::tr("Arrêter ce processus"), cyui::Variant::danger)) {
             approved = true; answered = true;
         }
         ImGui::SameLine();
-        if (cyui::button("Annuler", cyui::Variant::secondary)) answered = true;
+        if (cyui::button(ui_locale::tr("Annuler"), cyui::Variant::secondary)) answered = true;
         if (answered) {
             {
                 std::lock_guard lock(confirmationMutex);
@@ -217,10 +218,15 @@ struct AssistantPane::State {
         ChatConnection connection;
         connection.provider_id = providerId;
         connection.model = model;
-        connection.system_prompt = "Tu aides à analyser les processus et les performances de CyWinTask. "
-            "Utilise les outils de lecture pour répondre avec des mesures actuelles. "
-            "Ne demande jamais l'arrêt d'un processus sans une instruction explicite de l'utilisateur. "
-            "Les mesures peuvent être indisponibles et les PID réutilisés.";
+        connection.system_prompt = ui_locale::french()
+            ? "Tu aides à analyser les processus et les performances de CyWinTask. "
+              "Utilise les outils de lecture pour répondre avec des mesures actuelles. "
+              "Ne demande jamais l'arrêt d'un processus sans une instruction explicite de l'utilisateur. "
+              "Les mesures peuvent être indisponibles et les PID réutilisés."
+            : "You help analyze CyWinTask processes and performance. "
+              "Use read tools to answer with current measurements. "
+              "Never request process termination without an explicit user instruction. "
+              "Measurements may be unavailable and PIDs may be reused.";
         connection.automatic_model = connection.model.empty()
             && (providerId == "ollama" || providerId == "lmstudio" || providerId == "llama.cpp");
         if (contextKilobytes > 0)
@@ -232,7 +238,8 @@ struct AssistantPane::State {
         if (keyEnvironment[0]) {
             const std::string variable = keyEnvironment;
             if (variable.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
-                != std::string::npos) throw Error("InvalidOptions", "Nom de variable de clé invalide");
+                != std::string::npos) throw Error("InvalidOptions", ui_locale::french()
+                    ? "Nom de variable de clé invalide" : "Invalid key environment variable name");
             if (const char* key = std::getenv(variable.c_str())) connection.provider.api_key = key;
         }
         if (saveHistory) {
@@ -257,11 +264,11 @@ struct AssistantPane::State {
         pollDiscovery();
         cyui::heading("Assistant", 2);
         ImGui::SameLine();
-        cyui::textDim("CyMCPSDK · lecture et contrôle des processus");
-        if (demo) cyui::textDim("Démonstration : connexion et serveur désactivés ; aucune donnée réelle chargée.");
+        cyui::textDim(ui_locale::tr("CyMCPSDK · lecture et contrôle des processus"));
+        if (demo) cyui::textDim(ui_locale::tr("Démonstration : connexion et serveur désactivés ; aucune donnée réelle chargée."));
         ImGui::Separator();
         ImGui::BeginDisabled(demo);
-        ImGui::TextUnformatted("Fournisseur");
+        ImGui::TextUnformatted(ui_locale::tr("Fournisseur"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(260.0f));
         if (ImGui::BeginCombo("##assistantProvider", providerId.c_str())) {
@@ -273,53 +280,53 @@ struct AssistantPane::State {
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        if (cyui::button("Détecter", cyui::Variant::secondary) && !discovery.valid()) {
+        if (cyui::button(ui_locale::tr("Détecter"), cyui::Variant::secondary) && !discovery.valid()) {
             discovery = std::async(std::launch::async, [registry = providers] { return registry->discover(); });
         }
-        if (discovery.valid()) { ImGui::SameLine(); cyui::textDim("Recherche en cours..."); }
+        if (discovery.valid()) { ImGui::SameLine(); cyui::textDim(ui_locale::tr("Recherche en cours...")); }
         if (auto found = detectedProvider()) {
-            ImGui::SameLine(); cyui::textColoured(cyui::palette().success, "Disponible");
+            ImGui::SameLine(); cyui::textColoured(cyui::palette().success, ui_locale::tr("Disponible"));
         }
-        ImGui::TextUnformatted("Modèle");
+        ImGui::TextUnformatted(ui_locale::tr("Modèle"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(360.0f));
-        ImGui::InputTextWithHint("##assistantModel", "ID exact ; vide = choix automatique local", model, sizeof(model));
+        ImGui::InputTextWithHint("##assistantModel", ui_locale::tr("ID exact ; vide = choix automatique local"), model, sizeof(model));
         ImGui::SameLine();
         ImGui::TextUnformatted("URL");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(420.0f));
-        ImGui::InputTextWithHint("##assistantAddress", "Adresse du fournisseur (facultative)", address, sizeof(address));
-        ImGui::TextUnformatted("Clé d'environnement");
+        ImGui::InputTextWithHint("##assistantAddress", ui_locale::tr("Adresse du fournisseur (facultative)"), address, sizeof(address));
+        ImGui::TextUnformatted(ui_locale::tr("Clé d'environnement"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(280.0f));
         ImGui::InputTextWithHint("##assistantKey", "Ex. OPENAI_API_KEY", keyEnvironment, sizeof(keyEnvironment));
-        ImGui::Checkbox("Sauver l'historique", &saveHistory);
+        ImGui::Checkbox(ui_locale::tr("Sauver l'historique"), &saveHistory);
         ImGui::SameLine();
         ImGui::BeginDisabled(!saveHistory);
-        ImGui::Checkbox("Restaurer la session", &restoreHistory);
+        ImGui::Checkbox(ui_locale::tr("Restaurer la session"), &restoreHistory);
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(90.0f));
-        ImGui::InputInt("Contexte (Kio, 0 = complet)", &contextKilobytes);
+        ImGui::InputInt(ui_locale::tr("Contexte (Kio, 0 = complet)"), &contextKilobytes);
         contextKilobytes = std::clamp(contextKilobytes, 0, 4096);
-        if (cyui::button("Connecter", cyui::Variant::primary)) {
+        if (cyui::button(ui_locale::tr("Connecter"), cyui::Variant::primary)) {
             try { error.clear(); connect(); }
             catch (const std::exception& ex) { error = redact_error_message(ex.what()); }
         }
         ImGui::SameLine();
-        if (cyui::button("Annuler", cyui::Variant::secondary)) chat.cancel();
+        if (cyui::button(ui_locale::tr("Annuler"), cyui::Variant::secondary)) chat.cancel();
         ImGui::SameLine();
-        if (cyui::button("Déconnecter", cyui::Variant::secondary)) chat.disconnect();
+        if (cyui::button(ui_locale::tr("Déconnecter"), cyui::Variant::secondary)) chat.disconnect();
         ImGui::SameLine();
         cyui::textDim("%s", chat.state().phase.c_str());
         if (!error.empty()) cyui::textColoured(cyui::palette().error, "%s", error.c_str());
         if (!chat.state().error_message.empty())
             cyui::textColoured(cyui::palette().error, "%s", chat.state().error_message.c_str());
         ImGui::Separator();
-        if (ImGui::CollapsingHeader("Droits des outils")) {
-            cyui::textDim("Droits du chat et des profils MCP contrôlés. Free et Jeton seul autorisent tous les outils.");
+        if (ImGui::CollapsingHeader(ui_locale::tr("Droits des outils"))) {
+            cyui::textDim(ui_locale::tr("Droits du chat et des profils MCP contrôlés. Free et Jeton seul autorisent tous les outils."));
             const auto catalogue = tasks.registry()->describe();
-            if (cyui::button("Lecture seule", cyui::Variant::secondary)) {
+            if (cyui::button(ui_locale::tr("Lecture seule"), cyui::Variant::secondary)) {
                 for (const auto& entry : catalogue) {
                     const auto name = entry.at("name").get<std::string>();
                     tasks.setAllowed(name, name == "permissions.list"
@@ -329,14 +336,14 @@ struct AssistantPane::State {
                 }
             }
             ImGui::SameLine();
-            if (cyui::button("Contrôle de l'interface", cyui::Variant::secondary)) {
+            if (cyui::button(ui_locale::tr("Contrôle de l'interface"), cyui::Variant::secondary)) {
                 for (const auto& entry : catalogue) {
                     const auto name = entry.at("name").get<std::string>();
                     if (name.rfind("ui.", 0) == 0) tasks.setAllowed(name, true);
                 }
             }
             ImGui::SameLine();
-            if (cyui::button("Tout autoriser", cyui::Variant::danger))
+            if (cyui::button(ui_locale::tr("Tout autoriser"), cyui::Variant::danger))
                 for (const auto& entry : catalogue)
                     tasks.setAllowed(entry.at("name").get<std::string>(), true);
             for (const auto& entry : catalogue) {
@@ -346,12 +353,12 @@ struct AssistantPane::State {
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", entry.at("description").get<std::string>().c_str());
             }
         }
-        ImGui::TextUnformatted("Profil MCP");
+        ImGui::TextUnformatted(ui_locale::tr("Profil MCP"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(cyui::dp(180.0f));
-        if (ImGui::BeginCombo("##mcpAccessProfile", mcp_access::option(accessProfile).label)) {
+        if (ImGui::BeginCombo("##mcpAccessProfile", ui_locale::tr(mcp_access::option(accessProfile).label))) {
             for (const auto& choice : mcp_access::options) {
-                if (ImGui::Selectable(choice.label, choice.profile == accessProfile)) {
+                if (ImGui::Selectable(ui_locale::tr(choice.label), choice.profile == accessProfile)) {
                     try {
                         mcp_access::save(accessConfigPath, choice.profile);
                         accessProfile = choice.profile;
@@ -366,11 +373,11 @@ struct AssistantPane::State {
             ImGui::EndCombo();
         }
         if (local_access_settings(accessProfile).require_token)
-            cyui::textDim("Jeton requis ; copier l'adresse et le jeton pour se connecter.");
+            cyui::textDim(ui_locale::tr("Jeton requis ; copier l'adresse et le jeton pour se connecter."));
         else
-            cyui::textDim("Adresse seule sur 127.0.0.1 ; tout processus local peut appeler les outils autorisés.");
+            cyui::textDim(ui_locale::tr("Adresse seule sur 127.0.0.1 ; tout processus local peut appeler les outils autorisés."));
         bool exposed = http != nullptr;
-        if (ImGui::Checkbox("Serveur MCP local", &exposed)) {
+        if (ImGui::Checkbox(ui_locale::tr("Serveur MCP local"), &exposed)) {
             try { error.clear(); if (exposed) startServer(); else stopServer(); }
             catch (const std::exception& ex) { stopServer(); error = redact_error_message(ex.what()); }
         }
@@ -378,10 +385,10 @@ struct AssistantPane::State {
             const std::string url = "http://127.0.0.1:" + std::to_string(port) + "/mcp";
             cyui::textDim("%s", url.c_str());
             ImGui::SameLine();
-            if (cyui::button("Copier l'adresse", cyui::Variant::secondary)) ImGui::SetClipboardText(url.c_str());
+            if (cyui::button(ui_locale::tr("Copier l'adresse"), cyui::Variant::secondary)) ImGui::SetClipboardText(url.c_str());
             if (!token.empty()) {
                 ImGui::SameLine();
-                if (cyui::button("Copier le jeton", cyui::Variant::secondary)) ImGui::SetClipboardText(token.c_str());
+                if (cyui::button(ui_locale::tr("Copier le jeton"), cyui::Variant::secondary)) ImGui::SetClipboardText(token.c_str());
             }
         }
         ImGui::EndDisabled();

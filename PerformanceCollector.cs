@@ -52,8 +52,13 @@ public sealed class PerformanceCollector : IDisposable
         double? Get(string key, string instance) => data[key].TryGetValue(instance, out double v) ? v : null;
         var devices = new List<PerfDevice>();
         double? cpu = Get("cpu", "_Total") ?? system.Cpu;
-        var cpuMetrics = new List<PerfMetric> { new("cpu", "Utilisation totale", cpu, "%", 100), new("temperature", "Température CPU", cpuTemperature.Read(DateTime.UtcNow), "°C") };
-        foreach (var entry in data["cpu"].Where(x => !x.Key.Contains("_Total")).OrderBy(x => int.TryParse(x.Key.Split(',')[0], out var g) ? g : 0).ThenBy(x => int.TryParse(x.Key.Split(',').Last(), out var c) ? c : 0))
+        var cpuMetrics = new List<PerfMetric> { new("cpu", "Utilisation totale", cpu, "%", 100),
+            new("temperature", "Température CPU", cpuTemperature.Read(DateTime.UtcNow), "°C") };
+        var logicalCores = data["cpu"].Where(x => !x.Key.Contains("_Total")).ToArray();
+        if (logicalCores.Length != 0)
+            cpuMetrics.Add(new("peak", "Processeur logique le plus actif",
+                Math.Clamp(logicalCores.Max(x => x.Value), 0, 100), "%", 100));
+        foreach (var entry in logicalCores.OrderBy(x => int.TryParse(x.Key.Split(',')[0], out var g) ? g : 0).ThenBy(x => int.TryParse(x.Key.Split(',').Last(), out var c) ? c : 0))
             cpuMetrics.Add(new("core:" + entry.Key, "Processeur logique " + entry.Key, Math.Clamp(entry.Value, 0, 100), "%", 100));
         devices.Add(new("cpu", "Processeur", processorName + $" · {Environment.ProcessorCount} processeurs logiques", "cpu", cpuMetrics));
         devices.Add(new("memory", "Mémoire", $"{system.UsedGb:N1} / {system.TotalGb:N1} Go utilisés · {system.MemoryPercent} %", "memory",
@@ -77,7 +82,8 @@ public sealed class PerformanceCollector : IDisposable
                 var values = data[key].Where(x => x.Key.StartsWith(adapter.Id, StringComparison.OrdinalIgnoreCase)).ToArray();
                 return values.Length == 0 ? null : values.Sum(x => x.Value) / 1073741824;
             }
-            var metrics = new List<PerfMetric> { new("usage", "Utilisation · moteur le plus actif", usage, "%", 100), new("temperature", "Température GPU", gpuTemperature?.Read(adapter.Id) ?? cpuTemperature.ReadGpu(adapter, adapters), "°C") };
+            var metrics = new List<PerfMetric> { new("usage", "Utilisation · moteur le plus actif", usage, "%", 100), new("temperature", "Température GPU",
+                gpuTemperature?.Read(adapter.Id) ?? cpuTemperature.ReadGpu(adapter, adapters), "°C") };
             var types = new[] { "3D", "Copy", "VideoEncode", "VideoDecode" }.Concat(matching.Select(e => e.Key.Split('/')[2])).Distinct(StringComparer.OrdinalIgnoreCase);
             foreach (string type in types)
             {

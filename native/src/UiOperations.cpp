@@ -28,13 +28,14 @@ void registerUiOperations(TaskService& service, const std::shared_ptr<UiBridge>&
     }}, {"required", {"pid", "created"}}, {"additionalProperties", false}};
     add("ui.state", "Read the current page, process filters, selection, performance layout and detached windows.",
         {}, Json::array(), true);
-    add("ui.navigate", "Show the Processes, Performance or Assistant page; optionally select a device and detailed view.",
-        {{"page", {{"type", "string"}, {"enum", {"processes", "performance", "assistant"}}}},
+    add("ui.navigate", "Show the Processes, Performance, Assistant, Console, Temperatures or System page.",
+        {{"page", {{"type", "string"}, {"enum", {"processes", "performance", "assistant", "console", "temperatures", "system"}}}},
          {"device_id", {{"type", "string"}, {"maxLength", 128}}},
          {"view", {{"type", "string"}, {"enum", {"graphs", "detail"}}}}},
         {"page"}, false);
-    add("ui.processes.configure", "Set process search, type filter, grouping, tree, density, inspector or sorting.",
-        {{"query", {{"type", "string"}, {"maxLength", 255}}},
+    add("ui.processes.configure", "Set the process view, search, type filter, grouping, tree, density, inspector or sorting.",
+        {{"view", {{"type", "string"}, {"enum", {"all", "gpu"}}}},
+         {"query", {{"type", "string"}, {"maxLength", 255}}},
          {"category", {{"type", "integer"}, {"minimum", 0}, {"maximum", 3}}},
          {"group_by_type", boolean}, {"related", boolean}, {"compact", boolean},
          {"inspector", boolean},
@@ -65,11 +66,11 @@ void registerUiOperations(TaskService& service, const std::shared_ptr<UiBridge>&
          {"created", {{"type", "integer"}, {"minimum", 1}}},
          {"what", {{"type", "string"}, {"enum", {"path", "name_pid"}}}}},
         {"pid", "created", "what"}, false);
-    add("ui.performance.configure", "Set graph or detailed view, columns, compact cards, extra devices and CPU core layout.",
+    add("ui.performance.configure", "Set graph or detailed view, row or card layout, columns, compact cards, extra devices and CPU core layout.",
         {{"view", {{"type", "string"}, {"enum", {"graphs", "detail"}}}},
          {"device_id", {{"type", "string"}, {"maxLength", 128}}},
          {"columns", {{"type", "integer"}, {"minimum", 0}, {"maximum", 5}}},
-         {"compact_cards", boolean}, {"extra_devices", boolean},
+         {"compact_cards", boolean}, {"rows", boolean}, {"detail_cards", boolean}, {"extra_devices", boolean},
          {"show_cores", boolean}, {"compact_cores", boolean}}, Json::array(), false);
     add("ui.performance.history", "Read up to 120 real graph samples for one device metric from the current UI history.",
         {{"device_id", {{"type", "string"}, {"maxLength", 128}}},

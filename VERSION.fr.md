@@ -1,10 +1,23 @@
-# CyWinTask 0.9.0
+# CyWinTask 0.10.1
 
-[English](VERSION.md) · [README](README.fr.md) · [Version publiée](https://github.com/MrMybal/CyWinTask/releases/tag/v0.9.0)
+[English](VERSION.md) · [README](README.fr.md) · [Version publiée](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1)
 
 **Statut : en développement.** Cette version comprend l’application native Windows x64, son collecteur et le CLI autonome.
 
-## Changements de la version 0.9.0
+## Changements de la version 0.10.1
+
+- Ajout du tri par clic sur chacune des colonnes des processus GPU, avec comparaison numérique pour la confiance, les charges CPU/GPU, la mémoire du processus et les mémoires GPU en KiB, MiB ou GiB.
+- Placement des mesures indisponibles en fin de tri numérique.
+
+## Autres changements depuis la version 0.9.0
+
+- Intégration de CyHWInfo pour l’inventaire matériel, la télémétrie GPU, les compteurs GPU par processus et les capteurs avancés disponibles, avec repli lorsque PawnIO est inaccessible.
+- Ajout de l’arborescence des capteurs, du sous onglet des processus GPU, des barres de confiance et d’utilisation, de l’inspection rapide et du menu contextuel.
+- Ajout des pourcentages CPU, RAM, GPU et VRAM sur la page Processus et resserrement des cartes de graphiques et de la page Capteurs.
+- Affichage de la température et de l’utilisation totale dans les détails GPU, avec le raccourci vers les processus GPU à côté de l’en-tête.
+- Reconstruction de l’installateur et du ZIP portable Windows x64 à partir de l’application native mise à jour.
+
+## Déjà présent dans la version 0.9.0
 
 - Mise à jour de l’Assistant et de MCP vers CyMCPSDK 0.7.2.
 - Ajout de quatre profils d’accès MCP locaux. **Free** est le profil par défaut : les clients se connectent à l’adresse locale sans jeton et peuvent appeler toutes les opérations enregistrées, y compris les modifications, sans confirmation supplémentaire. Les schémas d’arguments et la vérification de l’identité des processus restent appliqués.
@@ -20,6 +33,6 @@
 - Les commandes d’interface nécessitent une instance graphique ouverte ; le CLI autonome n’a pas d’interface à piloter.
 - Les processus protégés peuvent masquer leur chemin, leur icône ou leurs modules. Les valeurs CPU/GPU et les températures dépendent des compteurs Windows, du matériel et des pilotes.
 - L’historique des applications, la gestion des programmes au démarrage et celle des services ne sont pas encore inclus. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis.
-- La compilation depuis les sources demande un accès aux dépôts privés CyUI et CyMCPSDK ; les paquets publiés comprennent leurs composants compilés.
+- La compilation depuis les sources demande un accès aux dépôts privés CyUI, CyMCPSDK et CyHWInfo ; les paquets publiés comprennent leurs composants compilés.
 
-Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md) pour les profils, les commandes et les connexions. La [version 0.9.0](https://github.com/MrMybal/CyWinTask/releases/tag/v0.9.0) propose l’installateur, le ZIP portable et les sommes SHA-256.
+Voir le [guide matériel](docs/Hardware.fr.md) et le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md). La [version 0.10.1](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1) fournit l’installateur, le ZIP portable et les sommes SHA-256.

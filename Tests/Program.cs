@@ -33,6 +33,15 @@ internal static class Program
         if (args.Contains("--tree")) return TreeChecks.Run();
         if (args.Contains("--sorting")) return SortingChecks.Run();
         if (args.Contains("--process-gpu")) return ProcessGpuChecks.Run();
+        if (args.Contains("--hardware-sensors")) {
+            using var sensors = new HardwareSensorCollector();
+            Thread.Sleep(5000);
+            var snapshot = sensors.Snapshot();
+            Console.WriteLine($"Sensor groups: {snapshot.Count}; readings: {snapshot.Sum(x => x.Metrics.Count)}; status: {sensors.Error ?? "ready"}");
+            Console.WriteLine($"CPU temperatures: {snapshot.Where(x => x.Description.Equals("Cpu", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Metrics.Count(m => m.Unit == "°C"))}; GPU temperatures: {snapshot.Where(x => x.Description.StartsWith("Gpu", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Metrics.Count(m => m.Unit == "°C"))}");
+            Console.WriteLine($"GPU telemetry readings: {snapshot.Where(x => x.Description.StartsWith("Gpu", StringComparison.OrdinalIgnoreCase)).Sum(x => x.Metrics.Count(m => m.Unit is "W" or "MHz" or "RPM" or "%"))}");
+            return 0;
+        }
         if (args.Contains("--child")) { Thread.Sleep(30000); return 0; }
         try
         {

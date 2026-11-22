@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '0.9.0',
+    [string]$Version = '0.10.1',
     [string]$InnoCompiler,
     [switch]$Offline
 )
@@ -39,18 +39,21 @@ $logoDir = Join-Path $publishDir 'Assets'
 $nativeDir = Join-Path $publishDir 'native'
 New-Item -ItemType Directory -Force $imageDir, $guideDir, $logoDir, $nativeDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/CyMCPSDK.fr.md') -Destination $guideDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/Hardware.fr.md') -Destination $guideDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/processes.png') -Destination $imageDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/screenshots/performance.png') -Destination $imageDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'Assets/cywintask-logo-transparent.png') -Destination $logoDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYUI_REVISION') -Destination $nativeDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYMCP_REVISION') -Destination $nativeDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'native/CYHWINFO_REVISION') -Destination $nativeDir
 @"
 CyWinTask $Version - Windows x64
 
 Interface Dear ImGui et CyUI ; collecteur .NET autonome inclus.
 Extraire TOUT le dossier ZIP, puis lancer CyWinTask.exe.
 CyWinTaskCli.exe permet l'accès CLI et MCP depuis un terminal ou une IA externe.
-Conserver le dossier bridge et les autres fichiers à côté de l'exécutable.
+Conserver les dossiers bridge et cyhwinfo-lhm à côté de l'exécutable.
+Les capteurs avancés demandent le runtime .NET 8 ; certains demandent le pilote signé PawnIO.
 Sources : https://github.com/MrMybal/CyWinTask
 Licences : voir LICENSE.txt et le dossier licenses.
 "@ | Set-Content (Join-Path $publishDir 'LIRE-MOI.txt') -Encoding utf8

@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace CyWinTask;
 
-public sealed record ProcessGpuUsage(double Own, double Group);
+public sealed record ProcessGpuUsage(double Own, double Group,
+    double? LocalBytes = null, double? SharedBytes = null, double? CommittedBytes = null);
 
 // One retained PDH query, sampled only at the normal process refresh cadence.
 public sealed class ProcessGpuCollector : IDisposable
@@ -11,8 +12,12 @@ public sealed class ProcessGpuCollector : IDisposable
     private static readonly Regex EngineName = new(
         @"^pid_(\d+)_(luid_0x[0-9a-f]+_0x[0-9a-f]+)_phys_(\d+)_eng_(\d+)_engtype_(.+?)(?:#\d+)?$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex MemoryName = new(
+        @"^pid_(\d+)_luid_0x[0-9a-f]+_0x[0-9a-f]+_phys_\d+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private IntPtr query;
     private IntPtr counter;
+    private IntPtr localCounter, sharedCounter, committedCounter;
     private IntPtr buffer;
     private uint capacity;
     private bool available;
@@ -22,18 +27,46 @@ public sealed class ProcessGpuCollector : IDisposable
     {
         if (PdhOpenQuery(null, IntPtr.Zero, out query) != 0) return;
         available = PdhAddEnglishCounter(query, @"\GPU Engine(*)\Utilization Percentage", IntPtr.Zero, out counter) == 0;
-        if (available) primed = PdhCollectQueryData(query) == 0;
+        PdhAddEnglishCounter(query, @"\GPU Process Memory(*)\Local Usage", IntPtr.Zero, out localCounter);
+        PdhAddEnglishCounter(query, @"\GPU Process Memory(*)\Non Local Usage", IntPtr.Zero, out sharedCounter);
+        PdhAddEnglishCounter(query, @"\GPU Process Memory(*)\Total Committed", IntPtr.Zero, out committedCounter);
+        if (available || localCounter != IntPtr.Zero) primed = PdhCollectQueryData(query) == 0;
     }
 
     public Dictionary<int, ProcessGpuUsage>? Collect(IReadOnlyList<ProcessSample> processes)
     {
-        if (!available || !primed || PdhCollectQueryData(query) != 0) return null;
-        var values = ReadCounters();
-        if (values == null || !values.Keys.Any(name => EngineName.IsMatch(name))) return null;
-        return Aggregate(values, processes);
+        if (!primed || PdhCollectQueryData(query) != 0) return null;
+        var engines = available ? ReadCounters(counter) : null;
+        var local = localCounter != IntPtr.Zero ? MemoryByProcess(ReadCounters(localCounter)) : null;
+        var shared = sharedCounter != IntPtr.Zero ? MemoryByProcess(ReadCounters(sharedCounter)) : null;
+        var committed = committedCounter != IntPtr.Zero ? MemoryByProcess(ReadCounters(committedCounter)) : null;
+        if (engines == null && local == null && shared == null && committed == null) return null;
+        var result = engines != null && engines.Keys.Any(name => EngineName.IsMatch(name))
+            ? Aggregate(engines, processes) : processes.ToDictionary(p => p.Id, _ => new ProcessGpuUsage(double.NaN, double.NaN));
+        foreach (var process in processes) {
+            var usage = result[process.Id];
+            result[process.Id] = usage with {
+                LocalBytes = local?.GetValueOrDefault(process.Id),
+                SharedBytes = shared?.GetValueOrDefault(process.Id),
+                CommittedBytes = committed?.GetValueOrDefault(process.Id)
+            };
+        }
+        return result;
     }
 
-    private Dictionary<string, double>? ReadCounters()
+    public static Dictionary<int, double>? MemoryByProcess(IReadOnlyDictionary<string, double>? values)
+    {
+        if (values == null) return null;
+        var result = new Dictionary<int, double>();
+        foreach (var entry in values) {
+            var match = MemoryName.Match(entry.Key);
+            if (!match.Success || !int.TryParse(match.Groups[1].Value, out int pid)) continue;
+            result[pid] = result.GetValueOrDefault(pid) + Math.Max(0, entry.Value);
+        }
+        return result;
+    }
+
+    private Dictionary<string, double>? ReadCounters(IntPtr counter)
     {
         for (int attempt = 0; attempt < 3; attempt++)
         {

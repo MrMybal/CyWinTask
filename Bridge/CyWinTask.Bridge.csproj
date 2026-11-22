@@ -8,7 +8,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="10.0.2" />
     <Compile Include="..\ProcessSampler.cs" Link="ProcessSampler.cs" />
     <Compile Include="..\ProcessGpuCollector.cs" Link="ProcessGpuCollector.cs" />
     <Compile Include="..\PerformanceCollector.cs" Link="PerformanceCollector.cs" />

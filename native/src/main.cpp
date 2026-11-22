@@ -1,5 +1,6 @@
 #include "AppUi.h"
 #include "UiScale.h"
+#include "UiLocale.h"
 
 #include <cyui/Core.h>
 #include <cyui/Locale.h>
@@ -149,17 +150,24 @@ LRESULT WINAPI windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPara
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
-    bool demoMode = false, performanceAtStart = false, assistantAtStart = false;
+    bool demoMode = false, performanceAtStart = false, assistantAtStart = false, performanceDetailsAtStart = false;
     std::string themeKey = "navy";
     cyui::Density density = cyui::Density::comfortable;
     std::wstring demoCapturePath;
     int mcpLocalPort = -1;
+    int utilityAtStart = 0;
     int argumentCount {};
     if (auto** arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount)) {
         for (int i = 1; i < argumentCount; ++i) {
             demoMode |= std::wcscmp(arguments[i], L"--demo") == 0;
             performanceAtStart |= std::wcscmp(arguments[i], L"--performance") == 0;
+            if (std::wcscmp(arguments[i], L"--performance-details") == 0) {
+                performanceAtStart = true; performanceDetailsAtStart = true;
+            }
             assistantAtStart |= std::wcscmp(arguments[i], L"--assistant") == 0;
+            if (std::wcscmp(arguments[i], L"--console") == 0) utilityAtStart = 3;
+            if (std::wcscmp(arguments[i], L"--temperatures") == 0) utilityAtStart = 4;
+            if (std::wcscmp(arguments[i], L"--system-info") == 0) utilityAtStart = 5;
             if (std::wcscmp(arguments[i], L"--mcp-local") == 0 && i + 1 < argumentCount) {
                 wchar_t* end {};
                 const long requested = std::wcstol(arguments[++i], &end, 10);
@@ -187,6 +195,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         LocalFree(arguments);
     }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    ui_locale::load();
     WNDCLASSEXW wc { sizeof(wc), CS_CLASSDC, windowProc, 0, 0, instance,
         LoadIconW(instance, MAKEINTRESOURCEW(1)), LoadCursorW(nullptr, IDC_ARROW), nullptr,
         nullptr, L"CyWinTaskNative", LoadIconW(instance, MAKEINTRESOURCEW(1)) };
@@ -198,11 +207,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     const int availableHeight = std::max(600, static_cast<int>(work.bottom - work.top));
     const int width = std::min(1500, availableWidth - 40);
     const int height = std::min(930, availableHeight - 40);
-    HWND window = CreateWindowW(wc.lpszClassName, L"CyWinTask — Gestionnaire des tâches",
+    HWND window = CreateWindowW(wc.lpszClassName, ui_locale::french()
+            ? L"CyWinTask 0.10.1 — Gestionnaire des tâches" : L"CyWinTask 0.10.1 — Task Manager",
         WS_OVERLAPPEDWINDOW, work.left + (availableWidth - width) / 2,
         work.top + (availableHeight - height) / 2, width, height, nullptr, nullptr, instance, nullptr);
     if (!createDevice(window)) {
-        MessageBoxW(nullptr, L"Direct3D 11 est indisponible.", L"CyWinTask", MB_OK | MB_ICONERROR);
+        MessageBoxW(nullptr, ui_locale::french()
+            ? L"Direct3D 11 est indisponible." : L"Direct3D 11 is unavailable.",
+            L"CyWinTask", MB_OK | MB_ICONERROR);
         DestroyWindow(window);
         UnregisterClassW(wc.lpszClassName, instance);
         return 1;
@@ -221,13 +233,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     theme.density = density;
     theme.dpiScale = ui_scale::combinedDpi() * uiDpiMultiplier;
     cyui::apply(theme);
-    cyui::setLocale("fr");
+    cyui::setLocale(ui_locale::french() ? "fr" : "en");
     cyui::loadFonts();
     ImGui_ImplWin32_Init(window);
     ImGui_ImplDX11_Init(device, context);
     imguiReady = true;
     {
-        AppUi app(device, demoMode, performanceAtStart, assistantAtStart, mcpLocalPort);
+        AppUi app(device, demoMode, performanceAtStart, assistantAtStart, mcpLocalPort, utilityAtStart,
+            performanceDetailsAtStart);
         bool done = false;
         int demoFrames = 0;
         while (!done) {

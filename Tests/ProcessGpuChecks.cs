@@ -34,6 +34,15 @@ internal static class ProcessGpuChecks
             ["pid_4200_luid_0x00000000_0x00000002_phys_0_eng_0_engtype_3D"] = 40
         }, processes);
         Check(capped[4200].Own == 100, "Valeur bornée à 100 % sans additionner les GPU");
+        var memory = ProcessGpuCollector.MemoryByProcess(new Dictionary<string, double>
+        {
+            ["pid_4201_luid_0x00000000_0x00000001_phys_0"] = 128 * 1048576,
+            ["pid_4201_luid_0x00000000_0x00000002_phys_0"] = 32 * 1048576,
+            ["pid_5600_luid_0x00000000_0x00000001_phys_0"] = 64 * 1048576,
+            ["other"] = 999999
+        });
+        Check(memory != null && memory[4201] == 160 * 1048576 && memory[5600] == 64 * 1048576
+            && memory.Count == 2, "VRAM locale attribuée au PID, tous adaptateurs réunis");
         Console.WriteLine("Process GPU checks passed.");
         return 0;
     }

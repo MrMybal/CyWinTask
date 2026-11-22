@@ -11,7 +11,7 @@
 struct ProcessInfo {
     int id {}, parent {}, threads {}, handles {};
     std::int64_t created {}, workingSet {};
-    double cpu {}, gpu {}, gpuGroup {};
+    double cpu {}, gpu {}, gpuGroup {}, gpuLocalBytes {}, gpuSharedBytes {}, gpuCommittedBytes {};
     std::uint8_t category {};
     std::string name, path;
 };

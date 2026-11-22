@@ -61,6 +61,9 @@ internal static class BridgeProgram
                 writer.Write(process.Cpu);
                 writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.Own ?? double.NaN);
                 writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.Group ?? double.NaN);
+                writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.LocalBytes ?? double.NaN);
+                writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.SharedBytes ?? double.NaN);
+                writer.Write(gpuUsage?.GetValueOrDefault(process.Id)?.CommittedBytes ?? double.NaN);
                 writer.Write(process.WorkingSet);
                 writer.Write(process.Threads);
                 writer.Write(process.Handles);
@@ -100,7 +103,8 @@ internal static class BridgeProgram
         if (parts[0] == "M" && parts.Length == 2) { performanceVisible = parts[1] == "1"; return; }
         if (parts[0] == "P" && parts.Length == 2) { paused = parts[1] == "1"; return; }
         if (parts[0] == "Q") { Environment.Exit(0); return; }
-        if (parts.Length != 4 || !int.TryParse(parts[1], out int requestId)
+        if ((parts.Length != 4 && !(parts.Length == 5 && parts[0] == "D" && parts[4] == "en"))
+            || !int.TryParse(parts[1], out int requestId)
             || !int.TryParse(parts[2], out int id) || !long.TryParse(parts[3], out long created)) return;
         var sample = lastSnapshot?.Processes.FirstOrDefault(p => p.Id == id && p.Created == created)
             ?? new ProcessSample(id, created, "", 0, 0, 0, 0, 0);
@@ -112,7 +116,7 @@ internal static class BridgeProgram
                 ProcessActions.Terminate(sample);
                 Reply(requestId, true, "Arrêt demandé.");
             }
-            else if (parts[0] == "D") Reply(requestId, true, AdvancedReport.Read(sample));
+            else if (parts[0] == "D") Reply(requestId, true, AdvancedReport.Read(sample, parts.Length == 5));
         }
         catch (Exception ex) { Reply(requestId, false, ex.Message); }
     }
@@ -164,35 +168,35 @@ internal static class BridgeProgram
 
 internal static class AdvancedReport
 {
-    public static string Read(ProcessSample sample)
+    public static string Read(ProcessSample sample, bool english = false)
     {
-        var text = new StringBuilder(ProcessActions.Describe(sample));
-        text.AppendLine().AppendLine().AppendLine("COMPTEURS DU PROCESSUS");
+        var text = new StringBuilder(ProcessActions.Describe(sample, english));
+        text.AppendLine().AppendLine().AppendLine(english ? "PROCESS COUNTERS" : "COMPTEURS DU PROCESSUS");
         using var process = Process.GetProcessById(sample.Id);
         _ = process.Handle;
         if (process.StartTime.ToUniversalTime().ToFileTimeUtc() != sample.Created)
-            throw new InvalidOperationException("Processus disparu ou PID réutilisé.");
+            throw new InvalidOperationException(english ? "Process exited or PID reused." : "Processus disparu ou PID réutilisé.");
         void Add(string label, Func<object?> read)
         {
             try { text.AppendLine(label + " : " + read()); }
-            catch (Exception ex) { text.AppendLine(label + " : indisponible (" + ex.Message + ")"); }
+            catch (Exception ex) { text.AppendLine(label + (english ? ": unavailable (" : " : indisponible (") + ex.Message + ")"); }
         }
         Add("Session", () => process.SessionId);
-        Add("Priorité", () => process.PriorityClass);
-        Add("Affinité CPU", () => "0x" + process.ProcessorAffinity.ToInt64().ToString("X"));
-        Add("Temps CPU total", () => process.TotalProcessorTime);
-        Add("Mémoire résidente", () => $"{process.WorkingSet64 / 1048576d:N1} Mo");
-        Add("Mémoire privée", () => $"{process.PrivateMemorySize64 / 1048576d:N1} Mo");
-        Add("Espace virtuel", () => $"{process.VirtualMemorySize64 / 1048576d:N1} Mo");
+        Add(english ? "Priority" : "Priorité", () => process.PriorityClass);
+        Add(english ? "CPU affinity" : "Affinité CPU", () => "0x" + process.ProcessorAffinity.ToInt64().ToString("X"));
+        Add(english ? "Total CPU time" : "Temps CPU total", () => process.TotalProcessorTime);
+        Add(english ? "Working set" : "Mémoire résidente", () => $"{process.WorkingSet64 / 1048576d:N1} {(english ? "MB" : "Mo")}");
+        Add(english ? "Private memory" : "Mémoire privée", () => $"{process.PrivateMemorySize64 / 1048576d:N1} {(english ? "MB" : "Mo")}");
+        Add(english ? "Virtual memory" : "Espace virtuel", () => $"{process.VirtualMemorySize64 / 1048576d:N1} {(english ? "MB" : "Mo")}");
         Add("Threads", () => process.Threads.Count);
         Add("Handles", () => process.HandleCount);
-        text.AppendLine().AppendLine("MODULES CHARGÉS (200 maximum)");
+        text.AppendLine().AppendLine(english ? "LOADED MODULES (200 maximum)" : "MODULES CHARGÉS (200 maximum)");
         try
         {
             foreach (ProcessModule module in process.Modules.Cast<ProcessModule>().Take(200))
-                text.AppendLine($"{module.ModuleName} · {module.ModuleMemorySize / 1024:N0} Ko\n  {module.FileName}");
+                text.AppendLine($"{module.ModuleName} · {module.ModuleMemorySize / 1024:N0} {(english ? "KB" : "Ko")}\n  {module.FileName}");
         }
-        catch (Exception ex) { text.AppendLine("Modules indisponibles : " + ex.Message); }
+        catch (Exception ex) { text.AppendLine((english ? "Modules unavailable: " : "Modules indisponibles : ") + ex.Message); }
         return text.ToString();
     }
 }
