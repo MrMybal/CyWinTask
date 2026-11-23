@@ -1,5 +1,6 @@
 #include "ConsolePane.h"
 #include "UiLocale.h"
+#include "UiKit.h"
 
 #include <cyui/Core.h>
 #include <imgui.h>
@@ -48,7 +49,7 @@ void ConsolePane::readOutput()
 {
     char buffer[4096];
     DWORD count {};
-    while (ReadFile(outputRead_, buffer, sizeof(buffer), &count, nullptr) && count)
+    while (running_ && ReadFile(outputRead_, buffer, sizeof(buffer), &count, nullptr) && count)
         append(std::string_view(buffer, count));
     running_ = false;
 }
@@ -95,12 +96,23 @@ bool ConsolePane::startPipeSession(int shell)
         (shell == 0 ? L" -NoLogo -NoProfile -NoExit" : L" /d /q /k");
     std::vector<wchar_t> commandLine(arguments.begin(), arguments.end());
     commandLine.push_back(L'\0');
+    job_ = CreateJobObjectW(nullptr, nullptr);
+    if (job_) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits {};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job_, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
     const bool launched = configured && CreateProcessW(application.c_str(), commandLine.data(),
-        nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+        nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT
+            | CREATE_SUSPENDED,
         nullptr, nullptr, &startup.StartupInfo, &process) != FALSE;
     DeleteProcThreadAttributeList(attributes);
     CloseHandle(inputRead); CloseHandle(outputWrite);
     if (!launched) { stopSession(); return false; }
+    // Children of the shell (ping -t, long scripts...) inherit the output pipe:
+    // they must end with the session or the reader would never return.
+    if (job_ && !AssignProcessToJobObject(job_, process.hProcess)) { CloseHandle(job_); job_ = nullptr; }
+    ResumeThread(process.hThread);
     CloseHandle(process.hThread);
     child_ = process.hProcess;
     activeShell_ = shell;
@@ -117,9 +129,12 @@ bool ConsolePane::startPipeSession(int shell)
 void ConsolePane::stopSession()
 {
     running_ = false;
+    if (job_) { CloseHandle(job_); job_ = nullptr; }
     if (child_) TerminateProcess(child_, 1);
     if (reader_.joinable()) {
-        CancelSynchronousIo(reader_.native_handle());
+        // The reader may be between two reads when the first cancel arrives.
+        const HANDLE thread = reader_.native_handle();
+        while (WaitForSingleObject(thread, 50) == WAIT_TIMEOUT) CancelSynchronousIo(thread);
         reader_.join();
     }
     if (child_) { CloseHandle(child_); child_ = nullptr; }
@@ -174,54 +189,92 @@ int ConsolePane::historyCallback(ImGuiInputTextCallbackData* data)
 
 void ConsolePane::draw(bool demoMode)
 {
-    if (!demoMode && activeShell_ < 0) startSession(shell_);
-    const char* shells[] {"PowerShell", "CMD"};
-    ImGui::SetNextItemWidth(cyui::dp(160.0f));
-    if (ImGui::Combo("##consoleShell", &shell_, shells, 2) && !demoMode) startSession(shell_);
-    ImGui::SameLine();
-    if (cyui::button(ui_locale::french() ? "Redémarrer la session" : "Restart session",
-            cyui::Variant::secondary) && !demoMode) startSession(shell_);
-    ImGui::SameLine();
-    if (cyui::button(ui_locale::french() ? "Effacer l'affichage" : "Clear view",
-            cyui::Variant::secondary)) clearOutput();
-    ImGui::SameLine();
-    cyui::textDim(running_ ? (ui_locale::french() ? "Session active" : "Session active")
-        : demoMode ? (ui_locale::french() ? "Démonstration" : "Demo mode")
-        : (ui_locale::french() ? "Session indisponible" : "Session unavailable"));
-    if (ImGui::BeginChild("##terminal", ImVec2(0, -cyui::dp(43.0f)), ImGuiChildFlags_Borders,
-            ImGuiWindowFlags_HorizontalScrollbar)) {
-        bool changed = false;
+    using ui_kit::pick;
+    // A failed start is retried every few seconds, not on every frame.
+    if (!demoMode && activeShell_ < 0 && ImGui::GetTime() >= nextStartAttempt_) {
+        if (!startSession(shell_)) nextStartAttempt_ = ImGui::GetTime() + 5.0;
+    }
+    const auto& palette = cyui::palette();
+    ui_kit::beginPageHeader("Console", pick("Session Windows persistante · l'état est conservé entre les commandes",
+        "Persistent Windows session · state is kept between commands"), cyui::dp(180.0f));
+    {
+        const char* state = running_ ? pick("Session active", "Session active")
+            : demoMode ? pick("Démonstration", "Demo mode") : pick("Session indisponible", "Session unavailable");
+        cyui::alignRight(ImGui::CalcTextSize(state).x + cyui::dp(16.0f));
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetStyle().FramePadding.y);
+        ui_kit::dotText(running_ ? palette.success : demoMode ? palette.info : palette.error, state);
+    }
+    ui_kit::endPageHeader();
+    if (cyui::beginToolbar("##consoleToolbar")) {
+        const char* shells[] {"PowerShell", "CMD"};
+        if (cyui::segmented("##consoleShell", shells, 2, &shell_, cyui::dp(200.0f)) && !demoMode) startSession(shell_);
+        cyui::toolbarSeparator();
         {
-            std::lock_guard lock(mutex_);
-            if (revision_ != displayedRevision_) {
-                displayedLines_ = lines_;
-                if (!pending_.empty()) displayedLines_.push_back(pending_);
-                displayedRevision_ = revision_;
-                changed = true;
+            cyui::ScopedDisabled disabled(demoMode);
+            if (cyui::iconTextButton(cyui::icon::refresh, pick("Redémarrer la session", "Restart session"), cyui::Variant::ghost))
+                startSession(shell_);
+        }
+        ImGui::SameLine(0.0f, cyui::dp(2.0f));
+        if (cyui::iconTextButton(cyui::icon::trash, pick("Effacer l'affichage", "Clear view"), cyui::Variant::ghost))
+            clearOutput();
+        ImGui::SameLine(0.0f, cyui::dp(2.0f));
+        if (cyui::iconTextButton(cyui::icon::copy, pick("Copier la sortie", "Copy output"), cyui::Variant::ghost)) {
+            const auto text = output();
+            ImGui::SetClipboardText(text.c_str());
+        }
+    }
+    cyui::endToolbar();
+    cyui::space(8.0f);
+    const float inputHeight = ImGui::GetFrameHeight() + cyui::dp(14.0f);
+    {
+        cyui::ScopedColor ground(ImGuiCol_ChildBg, palette.bg0);
+        cyui::ScopedVar padding(ImGuiStyleVar_WindowPadding, cyui::dp(12.0f, 10.0f));
+        padding.push(ImGuiStyleVar_ChildRounding, cyui::dp(cyui::metrics().roundingLarge));
+        const bool open = ImGui::BeginChild("##terminal", ImVec2(0, -inputHeight),
+            ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar);
+        if (open) {
+            bool changed = false;
+            {
+                std::lock_guard lock(mutex_);
+                if (revision_ != displayedRevision_) {
+                    displayedLines_ = lines_;
+                    if (!pending_.empty()) displayedLines_.push_back(pending_);
+                    displayedRevision_ = revision_;
+                    changed = true;
+                }
+            }
+            cyui::ScopedFont mono(cyui::monoFont());
+            if (demoMode) {
+                cyui::textColoured(palette.accent, "%s", shell_ == 0 ? "PS> Get-Process" : "C:\\> tasklist");
+                cyui::textDim("Demo session · commands disabled");
+            } else {
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(displayedLines_.size()));
+                while (clipper.Step())
+                    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+                        ImGui::TextUnformatted(displayedLines_[i].c_str());
+                if (changed && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - cyui::dp(50.0f))
+                    ImGui::SetScrollHereY(1.0f);
             }
         }
+        ImGui::EndChild();
+    }
+    cyui::space(6.0f);
+    cyui::ScopedDisabled disabled(demoMode || !running_);
+    {
         cyui::ScopedFont mono(cyui::monoFont());
-        if (demoMode) {
-            ImGui::TextUnformatted(shell_ == 0 ? "PS> Get-Process" : "C:\\> tasklist");
-            ImGui::TextUnformatted("Demo session · commands disabled");
-        } else {
-            ImGuiListClipper clipper;
-            clipper.Begin(static_cast<int>(displayedLines_.size()));
-            while (clipper.Step())
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                    ImGui::TextUnformatted(displayedLines_[i].c_str());
-            if (changed && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - cyui::dp(50.0f))
-                ImGui::SetScrollHereY(1.0f);
+        const float top = ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(top + ImGui::GetStyle().FramePadding.y);
+        cyui::textColoured(palette.accent, "%s", shell_ == 0 ? "PS>" : ">");
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(top);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputTextWithHint("##terminalInput", pick("Saisir une commande · ↑/↓ historique",
+                "Type a command · ↑/↓ history"), command_, sizeof(command_),
+                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory,
+                historyCallback, this)) {
+            if (executeCommand(command_, shell_)) command_[0] = '\0';
+            ImGui::SetKeyboardFocusHere(-1);
         }
     }
-    ImGui::EndChild();
-    ImGui::BeginDisabled(demoMode || !running_);
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::InputText("##terminalInput", command_, sizeof(command_),
-            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory,
-            historyCallback, this)) {
-        if (executeCommand(command_, shell_)) command_[0] = '\0';
-        ImGui::SetKeyboardFocusHere(-1);
-    }
-    ImGui::EndDisabled();
 }

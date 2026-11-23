@@ -21,7 +21,7 @@ cymcp::LocalAccessProfile parse(std::string_view id)
 cymcp::LocalAccessProfile fromConfig(const cymcp::Json& config)
 {
     if (!config.is_object()) throw cymcp::Error("InvalidOptions", "Invalid MCP configuration");
-    if (!config.contains("access_profile")) return cymcp::LocalAccessProfile::free;
+    if (!config.contains("access_profile")) return defaultProfile;
     if (!config.at("access_profile").is_string())
         throw cymcp::Error("InvalidOptions", "MCP access profile must be a string");
     return parse(config.at("access_profile").get<std::string>());
@@ -39,7 +39,7 @@ std::filesystem::path configPath()
 
 cymcp::LocalAccessProfile load(const std::filesystem::path& path)
 {
-    if (!std::filesystem::exists(path)) return cymcp::LocalAccessProfile::free;
+    if (!std::filesystem::exists(path)) return defaultProfile;
     std::ifstream input(path, std::ios::binary);
     if (!input) throw cymcp::Error("Unavailable", "Cannot read MCP access configuration");
     try {

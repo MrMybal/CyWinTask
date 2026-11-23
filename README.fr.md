@@ -33,7 +33,7 @@ Le [guide matériel](docs/Hardware.fr.md) détaille les colonnes des processus G
 - **Outils matériels :** températures, journal CSV HWiNFO optionnel, résumé du système et console CMD/PowerShell locale.
 - **Mesures en direct :** jusqu’à 60 secondes d’historique ; les compteurs manquants sont indiqués comme indisponibles.
 - **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre supérieure.
-- **Assistant et automatisation :** chat intégré, CLI autonome et serveur MCP local pour les mesures, l'inspection des processus et le contrôle de l'interface. Quatre profils MCP locaux sont disponibles. Le profil Free par défaut accepte une connexion par adresse seule depuis les processus locaux et autorise tous les outils enregistrés sans confirmation supplémentaire ; le chat et les profils contrôlés conservent les droits individuels. Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md).
+- **Assistant et automatisation :** chat intégré, CLI autonome et serveur MCP local pour les mesures, l'inspection des processus et le contrôle de l'interface. Quatre profils MCP locaux sont disponibles. Le profil Local contrôlé par défaut accepte une connexion par adresse seule depuis les processus locaux et conserve les droits par outil, avec une confirmation avant l'arrêt d'un processus. Le profil Free, qui autorise tous les outils enregistrés sans confirmation supplémentaire, doit être choisi explicitement. Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md).
 
 ---
 

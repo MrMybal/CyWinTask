@@ -257,7 +257,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
                 resizeWidth = resizeHeight = 0;
                 createTarget();
             }
-            if (IsIconic(window)) { Sleep(100); continue; }
+            if (IsIconic(window)) { app.idle(); Sleep(100); continue; }
             if (ui_scale::consumeChanged()) cyui::applyDpi(ui_scale::combinedDpi() * uiDpiMultiplier);
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();

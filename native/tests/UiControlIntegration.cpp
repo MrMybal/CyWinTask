@@ -14,8 +14,9 @@ int main()
 {
     try {
         using cymcp::LocalAccessProfile;
-        if (mcp_access::fromConfig(cymcp::Json::object()) != LocalAccessProfile::free ||
-            mcp_access::fromConfig({{"old_setting", true}}) != LocalAccessProfile::free ||
+        if (mcp_access::fromConfig(cymcp::Json::object()) != LocalAccessProfile::local_controlled ||
+            mcp_access::fromConfig({{"old_setting", true}}) != LocalAccessProfile::local_controlled ||
+            mcp_access::fromConfig({{"access_profile", "free"}}) != LocalAccessProfile::free ||
             mcp_access::fromConfig({{"access_profile", "protected"}}) != LocalAccessProfile::protected_access ||
             mcp_access::fromConfig({{"access_profile", "local_controlled"}}) != LocalAccessProfile::local_controlled ||
             mcp_access::fromConfig({{"access_profile", "token_only"}}) != LocalAccessProfile::token_only)
@@ -26,12 +27,12 @@ int main()
             std::ofstream legacy(configPath);
             legacy << "{\"old_setting\":true}";
         }
-        if (mcp_access::load(configPath) != LocalAccessProfile::free)
-            throw std::runtime_error("Legacy MCP configuration was not migrated to Free");
+        if (mcp_access::load(configPath) != LocalAccessProfile::local_controlled)
+            throw std::runtime_error("Legacy MCP configuration was not migrated to Local controlled");
         {
             std::ifstream migrated(configPath);
             const auto contents = cymcp::Json::parse(migrated);
-            if (contents.at("access_profile") != "free" || contents.at("old_setting") != true)
+            if (contents.at("access_profile") != "local_controlled" || contents.at("old_setting") != true)
                 throw std::runtime_error("MCP migration did not preserve other configuration");
         }
         mcp_access::save(configPath, LocalAccessProfile::protected_access);

@@ -19,6 +19,11 @@ inline constexpr Option options[] {
     {cymcp::LocalAccessProfile::protected_access, "protected", "Protégé"},
 };
 
+// Used when nothing was chosen (no file, or a file without a profile).
+// Local controlled: loopback address only, per-tool permissions, and ending a
+// process still asks for confirmation.
+inline constexpr cymcp::LocalAccessProfile defaultProfile = cymcp::LocalAccessProfile::local_controlled;
+
 const Option& option(cymcp::LocalAccessProfile profile);
 cymcp::LocalAccessProfile parse(std::string_view id);
 cymcp::LocalAccessProfile fromConfig(const cymcp::Json& config);

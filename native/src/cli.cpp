@@ -20,9 +20,11 @@ void help()
               << "  CyWinTaskCli.exe mcp [--allow-stop] [--allow-details]  (MCP over stdio)\n"
               << "  CyWinTaskCli.exe serve [PORT] [--profile free|local_controlled|token_only|protected] [--allow-stop] [--allow-details]\n"
               << "  CyWinTaskCli.exe remote URL list|describe NAME|invoke NAME '{JSON}'\n"
-              << "HTTP serve defaults to Free: 127.0.0.1 address only, all registered operations.\n"
+              << "HTTP serve defaults to Local controlled: 127.0.0.1 address only, per-tool permissions.\n"
+              << "Free opens every registered operation to any local process without a token.\n"
               << "Token only and Protected require CYWINTASK_MCP_TOKEN (32+ characters).\n"
-              << "Stopping a process also requires confirm:true and its creation timestamp.\n";
+              << "In Local controlled and Protected, stopping a process requires --allow-stop,\n"
+              << "confirm:true and its creation timestamp.\n";
 }
 }
 
@@ -78,7 +80,7 @@ int main(int argc, char** argv)
             server.serve_stdio(std::cin, std::cout);
             return 0;
         }
-        LocalAccessProfile profile = LocalAccessProfile::free;
+        LocalAccessProfile profile = mcp_access::defaultProfile;
         int port = 0;
         bool portSet = false;
         for (int i = 2; i < argc; ++i) {

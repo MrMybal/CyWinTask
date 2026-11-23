@@ -36,6 +36,8 @@ private:
     std::thread reader_;
     std::mutex mutex_;
     HANDLE child_ {}, inputWrite_ {}, outputRead_ {};
+    // Every process started from the shell; closing it ends them all.
+    HANDLE job_ {};
     std::deque<std::string> lines_;
     std::string pending_;
     std::deque<std::string> displayedLines_;
@@ -44,4 +46,5 @@ private:
     bool carriageReturn_ {};
     std::vector<std::string> history_;
     int historyIndex_ {-1};
+    double nextStartAttempt_ {};
 };

@@ -122,12 +122,13 @@ file(GLOB CYWINTASK_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*
 set_source_files_properties(
     src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp
     src/AssistantPane.cpp src/McpAccess.cpp src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp
-    src/UiScale.cpp src/UiLocale.cpp src/ConsolePane.cpp src/SensorLog.cpp src/cli.cpp tests/AssistantIntegration.cpp tests/UiControlIntegration.cpp
+    src/UiScale.cpp src/UiLocale.cpp src/UiKit.cpp src/ConsolePane.cpp src/SensorLog.cpp src/cli.cpp tests/AssistantIntegration.cpp tests/UiControlIntegration.cpp
+    tests/ConsoleIntegration.cpp tests/HardwareInventoryIntegration.cpp src/HardwareInventory.cpp
     PROPERTIES OBJECT_DEPENDS "${CYWINTASK_HEADERS}")
 
 add_executable(CyWinTask WIN32
     src/main.cpp src/BridgeClient.cpp src/ProcessTrust.cpp src/AppUi.cpp src/HardwareInventory.cpp src/AssistantPane.cpp src/McpAccess.cpp
-    src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp src/UiScale.cpp src/UiLocale.cpp src/ConsolePane.cpp src/SensorLog.cpp src/resources.rc
+    src/TaskService.cpp src/UiBridge.cpp src/UiOperations.cpp src/UiScale.cpp src/UiLocale.cpp src/UiKit.cpp src/ConsolePane.cpp src/SensorLog.cpp src/resources.rc
     "${IMGUI_DIR}/backends/imgui_impl_win32.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_dx11.cpp")
 target_include_directories(CyWinTask PRIVATE "${IMGUI_DIR}" "${IMGUI_DIR}/backends")
@@ -155,7 +156,7 @@ target_compile_definitions(CyWinTaskUiChecks PRIVATE UNICODE _UNICODE NOMINMAX W
 target_link_libraries(CyWinTaskUiChecks PRIVATE CyMCP::MCP)
 
 add_executable(CyWinTaskConsoleChecks EXCLUDE_FROM_ALL
-    tests/ConsoleIntegration.cpp src/ConsolePane.cpp src/SensorLog.cpp src/UiLocale.cpp)
+    tests/ConsoleIntegration.cpp src/ConsolePane.cpp src/SensorLog.cpp src/UiLocale.cpp src/UiKit.cpp)
 target_include_directories(CyWinTaskConsoleChecks PRIVATE "${IMGUI_DIR}")
 target_compile_options(CyWinTaskConsoleChecks PRIVATE /W4 /utf-8)
 target_compile_definitions(CyWinTaskConsoleChecks PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)

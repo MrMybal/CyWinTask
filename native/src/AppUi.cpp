@@ -8,6 +8,7 @@
 #include "UiScale.h"
 #include "UiLocale.h"
 #include "UiBridge.h"
+#include "UiKit.h"
 
 #include <cyhwinfo/ui.hpp>
 #include <cyui/Core.h>
@@ -22,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdarg>
 #include <cstdint>
 #include <chrono>
 #include <cmath>
@@ -141,55 +143,16 @@ bool restartElevated(const wchar_t* page)
     return reinterpret_cast<std::intptr_t>(ShellExecuteW(nullptr, L"runas", executable,
         page, nullptr, SW_SHOWNORMAL)) > 32;
 }
-ImU32 heat(const double percent, const bool memory)
+std::string textf(const char* pattern, ...)
 {
-    const auto value = memory ? percent * 5.0 : percent;
-    const auto& palette = cyui::palette();
-    return value >= 50 ? palette.error : value >= 20 ? palette.warning : value >= 5 ? palette.info : palette.accent;
+    char buffer[512];
+    va_list args;
+    va_start(args, pattern);
+    std::vsnprintf(buffer, sizeof(buffer), pattern, args);
+    va_end(args);
+    return buffer;
 }
-void usageBar(const double percent, const std::string& text, const bool memory, const float heightDp = 22.0f)
-{
-    // CyUI's rounded progress bar enforces a minimum filled width. Process loads
-    // below 1% need a proportional hairline so small differences remain visible.
-    const auto& palette = cyui::palette();
-    const auto pos = ImGui::GetCursorScreenPos();
-    const float width = std::max(cyui::dp(55.0f), ImGui::GetContentRegionAvail().x);
-    const float height = cyui::dp(heightDp);
-    ImGui::Dummy(ImVec2(width, height));
-    auto* draw = ImGui::GetWindowDrawList();
-    const ImVec2 max(pos.x + width, pos.y + height);
-    draw->AddRectFilled(pos, max, palette.bg3, cyui::dp(3.0f));
-    if (std::isfinite(percent) && percent > 0)
-        draw->AddRectFilled(ImVec2(pos.x, max.y - cyui::dp(3.0f)),
-            ImVec2(pos.x + width * static_cast<float>(std::clamp(percent / 100.0, 0.0, 1.0)), max.y),
-            heat(percent, memory));
-    draw->AddText(ImVec2(pos.x + cyui::dp(5.0f), pos.y + (height - ImGui::GetFontSize()) * 0.5f), palette.text, text.c_str());
-}
-void trustBar(const TrustResult& trust, const float height)
-{
-    const auto& colors = cyui::palette();
-    const auto position = ImGui::GetCursorScreenPos();
-    const float width = std::max(cyui::dp(64.0f), ImGui::GetContentRegionAvail().x);
-    ImGui::Dummy(ImVec2(width, height));
-    auto* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(position, ImVec2(position.x + width, position.y + height), colors.bg3, cyui::dp(2.0f));
-    if (trust.score >= 0) {
-        const ImU32 colour = trust.score >= 80 ? colors.success
-            : trust.score >= 55 ? colors.info : trust.score >= 30 ? colors.warning : colors.error;
-        const float fill = width * static_cast<float>(trust.score) / 100.0f;
-        draw->AddRectFilled(ImVec2(position.x, position.y + height - cyui::dp(3.0f)),
-            ImVec2(position.x + fill, position.y + height), colour);
-        const auto score = std::to_string(trust.score) + " / 100";
-        draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
-            position.y + std::max(0.0f, (height - ImGui::GetFontSize()) * 0.5f - cyui::dp(1.0f))),
-            colors.text, score.c_str());
-    } else draw->AddText(ImVec2(position.x + cyui::dp(5.0f),
-        position.y + (height - ImGui::GetFontSize()) * 0.5f), colors.textDim,
-        trust.state == TrustState::pending ? "..." : "—");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s\n%s",
-        ui_locale::text(trust.label).c_str(), ui_locale::text(trust.explanation).c_str(),
-        ui_locale::tr("Indice local, pas une analyse antivirus."));
-}
+using ui_kit::pick;
 class IconCache {
     ID3D11Device* device_ {};
     std::unordered_map<std::string, ID3D11ShaderResourceView*> cache_;
@@ -197,16 +160,20 @@ class IconCache {
 public:
     explicit IconCache(ID3D11Device* device) : device_(device) {}
     ~IconCache() { for (auto& item : cache_) if (item.second) item.second->Release(); }
-    void beginFrame() { budget_ = 3; }
+    // Purges only between frames: views already queued in this frame's draw
+    // lists must stay alive until the frame is rendered.
+    void beginFrame()
+    {
+        budget_ = 3;
+        if (cache_.size() < 2048) return;
+        for (auto& item : cache_) if (item.second) item.second->Release();
+        cache_.clear();
+    }
     ID3D11ShaderResourceView* get(const std::string& path)
     {
         if (path.empty()) return nullptr;
         if (const auto found = cache_.find(path); found != cache_.end()) return found->second;
         if (budget_-- <= 0) return nullptr;
-        if (cache_.size() >= 2048) {
-            for (auto& item : cache_) if (item.second) item.second->Release();
-            cache_.clear();
-        }
         SHFILEINFOW info {};
         const auto source = wide(path);
         if (!SHGetFileInfoW(source.c_str(), 0, &info, sizeof(info), SHGFI_ICON | SHGFI_LARGEICON) || !info.hIcon)
@@ -329,6 +296,8 @@ struct AppUi::State {
     std::unordered_map<std::string, double> diskRateScale;
     std::map<std::string, bool> detached;
     bool dirty { true };
+    float sidebarFooterHeight {};
+    std::unordered_set<int> detailRequests;
     double nextTrustRefresh {};
 
     void fillDemo()
@@ -678,10 +647,15 @@ struct AppUi::State {
         }
         if (!nextError.empty()) error = std::move(nextError);
         for (const auto& reply : replies) {
-            if (reply.success) {
+            if (detailRequests.erase(reply.requestId)) {
+                // Advanced reports go to their window, never to a toast or the status bar.
+                detailText = reply.text;
+                detailsOpen = true;
+                if (!reply.success) cyui::notify(pick("Informations avancées indisponibles.",
+                    "Advanced information unavailable."), cyui::Tone::error);
+            } else if (reply.success) {
                 statusMessage = reply.text;
                 cyui::notify(reply.text.c_str(), cyui::Tone::success);
-                if (reply.text != "Arrêt demandé.") { detailText = reply.text; detailsOpen = true; }
             } else {
                 statusMessage = reply.text;
                 cyui::notify(reply.text.c_str(), cyui::Tone::error);
@@ -1041,6 +1015,7 @@ struct AppUi::State {
         }
         detailText = ui_locale::tr("Lecture des informations...");
         detailsOpen = true;
+        detailRequests.insert(nextRequest);
         bridge.send("D " + std::to_string(nextRequest++) + " " + std::to_string(process.id)
             + " " + std::to_string(process.created) + (ui_locale::french() ? "\n" : " en\n"));
     }
@@ -1069,6 +1044,181 @@ struct AppUi::State {
             ImGui::SetClipboardText(label.c_str());
         }
     }
+    // ------------------------------------------------------------------ shell
+    struct LiveSummary {
+        double cpu {NAN}, memoryUsed {NAN}, memoryTotal {NAN}, gpu {NAN}, vramUsed {}, vramTotal {};
+    };
+    LiveSummary liveSummary() const
+    {
+        LiveSummary summary;
+        if (!hasSnapshot) return summary;
+        summary.cpu = snapshot.cpu;
+        summary.memoryUsed = snapshot.memoryUsedGb;
+        summary.memoryTotal = snapshot.memoryTotalGb;
+        for (const auto& device : snapshot.devices) if (device.kind == "gpu") {
+            if (const auto* usage = metric(device, "usage"); usage && std::isfinite(usage->value))
+                summary.gpu = std::isfinite(summary.gpu) ? std::max(summary.gpu, usage->value) : usage->value;
+            if (const auto* vram = metric(device, "dedicated"); vram && std::isfinite(vram->value)
+                && std::isfinite(vram->maximum) && vram->maximum > 0.0) {
+                summary.vramUsed += vram->value;
+                summary.vramTotal += vram->maximum;
+            }
+        }
+        return summary;
+    }
+    void goTo(const int page)
+    {
+        if (page == 2) switchAssistant();
+        else if (page >= 3) switchUtility(page);
+        else switchPage(page == 1);
+    }
+    void togglePause()
+    {
+        if (demoMode) return;
+        paused = !paused;
+        bridge.send(paused ? "P 1\n" : "P 0\n");
+        updateHardwareActivity();
+    }
+    void setLanguage(const bool french)
+    {
+        ui_locale::setFrench(french);
+        cyui::setLocale(french ? "fr" : "en");
+        dirty = true;
+        if (auto* window = static_cast<HWND>(ImGui::GetMainViewport()->PlatformHandleRaw))
+            SetWindowTextW(window, french
+                ? L"CyWinTask 0.10.1 — Gestionnaire des tâches" : L"CyWinTask 0.10.1 — Task Manager");
+    }
+    void zoomControls(const float width)
+    {
+        const float button = ImGui::GetFrameHeight();
+        if (cyui::iconButton(cyui::icon::zoomOut, pick("Réduire le texte (Ctrl+-)", "Smaller text (Ctrl+-)"),
+                false, 0, ImVec2(button, button)))
+            ui_scale::adjust(-10);
+        ImGui::SameLine(0.0f, 0.0f);
+        const float middle = std::max(cyui::dp(34.0f), width - button * 2.0f);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##zoomReset", ImVec2(middle, button))) ui_scale::adjust(115 - ui_scale::percent());
+        const bool hovered = ImGui::IsItemHovered();
+        cyui::tooltip(pick("Taille par défaut (Ctrl+0)", "Default size (Ctrl+0)"));
+        const auto label = std::to_string(ui_scale::percent()) + " %";
+        cyui::centredText(ImGui::GetWindowDrawList(), at, ImVec2(at.x + middle, at.y + button),
+            hovered ? cyui::palette().text : cyui::palette().textDim, label.c_str());
+        ImGui::SameLine(0.0f, 0.0f);
+        if (cyui::iconButton(cyui::icon::zoomIn, pick("Agrandir le texte (Ctrl++)", "Larger text (Ctrl++)"),
+                false, 0, ImVec2(button, button)))
+            ui_scale::adjust(10);
+    }
+    void languageCombo(const float width)
+    {
+        const char* languages[] {"English", "Français"};
+        int language = ui_locale::french() ? 1 : 0;
+        if (cyui::combo("##language", &language, languages, 2, width)) setLanguage(language == 1);
+    }
+    void sidebar()
+    {
+        struct NavEntry { int page; const char* icon; const char* french; const char* english; const char* keys; };
+        const NavEntry monitor[] {
+            {0, cyui::icon::list, "Processus", "Processes", "Ctrl+1"},
+            {1, cyui::icon::equalizer, "Performance", "Performance", "Ctrl+2"},
+            {4, cyui::icon::brightness, "Températures", "Temperatures", "Ctrl+5"},
+            {5, cyui::icon::info, "Système", "System", "Ctrl+6"}};
+        const NavEntry tools[] {
+            {2, cyui::icon::lightbulb, "Assistant", "Assistant", "Ctrl+3"},
+            {3, cyui::icon::code, "Console", "Console", "Ctrl+4"}};
+        const bool narrow = ImGui::GetMainViewport()->Size.x < cyui::dp(1080.0f);
+        if (cyui::beginSidebar("##navigation", narrow ? 58.0f : 204.0f)) {
+            const int page = activePage();
+            const std::string count = hasSnapshot ? std::to_string(snapshot.processes.size()) : std::string();
+            const auto entry = [&](const NavEntry& item) {
+                const char* label = pick(item.french, item.english);
+                if (narrow) {
+                    const std::string tip = std::string(label) + " (" + item.keys + ")";
+                    if (ui_kit::navIcon(item.icon, tip.c_str(), page == item.page)) goTo(item.page);
+                } else if (cyui::sidebarItem(item.icon, label, page == item.page,
+                               item.page == 0 && !count.empty() ? count.c_str() : nullptr)) goTo(item.page);
+            };
+            if (narrow) {
+                cyui::ScopedFont font(cyui::boldFont(), 1.05f);
+                const float width = ImGui::GetContentRegionAvail().x;
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                cyui::centredText(ImGui::GetWindowDrawList(), at, ImVec2(at.x + width, at.y + ImGui::GetFontSize()),
+                    cyui::palette().accent, "Cy");
+                ImGui::Dummy(ImVec2(width, ImGui::GetFontSize()));
+                cyui::space(12.0f);
+                for (const auto& item : monitor) entry(item);
+                cyui::divider(6.0f);
+                for (const auto& item : tools) entry(item);
+            } else {
+                cyui::sidebarHeader("CyWinTask", demoMode ? ui_locale::tr("DÉMO") : nullptr);
+                cyui::sidebarGroup(pick("SURVEILLANCE", "MONITORING"));
+                for (const auto& item : monitor) entry(item);
+                cyui::sidebarGroup(pick("OUTILS", "TOOLS"));
+                for (const auto& item : tools) entry(item);
+            }
+            sidebarFooter(narrow);
+        }
+        cyui::endSidebar();
+    }
+    void sidebarFooter(const bool narrow)
+    {
+        const auto& colors = cyui::palette();
+        const float bottom = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y;
+        ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + cyui::dp(12.0f), bottom - sidebarFooterHeight));
+        const float start = ImGui::GetCursorPosY();
+        const float width = ImGui::GetContentRegionAvail().x;
+        if (narrow) {
+            {
+                cyui::ScopedDisabled disabled(demoMode);
+                if (cyui::iconButton(paused ? cyui::icon::play : cyui::icon::pause,
+                        paused ? ui_locale::tr("Reprendre") : ui_locale::tr("Pause"), paused, 0, ImVec2(width, 0)))
+                    togglePause();
+            }
+            if (cyui::iconButton(cyui::icon::settings, pick("Affichage et langue", "Display and language"),
+                    false, 0, ImVec2(width, 0)))
+                ImGui::OpenPopup("##displayOptions");
+            if (ImGui::BeginPopup("##displayOptions")) {
+                cyui::sectionTitle(pick("Taille du texte", "Text size"));
+                zoomControls(cyui::dp(150.0f));
+                cyui::space(4.0f);
+                cyui::sectionTitle(pick("Langue", "Language"));
+                languageCombo(cyui::dp(150.0f));
+                ImGui::EndPopup();
+            }
+        } else {
+            const auto summary = liveSummary();
+            const auto value = [](const char* pattern, const double number) {
+                return std::isfinite(number) ? format(pattern, number) : std::string("—");
+            };
+            cyui::overline(pick("EN DIRECT", "LIVE"), colors.textFaint);
+            cyui::space(3.0f);
+            const double cpu = summary.cpu / 100.0;
+            ui_kit::liveMeter("CPU", value("%.0f %%", summary.cpu).c_str(), cpu, ui_kit::loadColour(cpu));
+            const double memory = summary.memoryTotal > 0.0 ? summary.memoryUsed / summary.memoryTotal : NAN;
+            const std::string memoryText = std::isfinite(memory)
+                ? textf("%.1f / %.0f %s", summary.memoryUsed, summary.memoryTotal, pick("Go", "GB")) : "—";
+            ui_kit::liveMeter(ui_locale::tr("Mémoire"), memoryText.c_str(), memory, ui_kit::loadColour(memory));
+            const double gpu = summary.gpu / 100.0;
+            ui_kit::liveMeter("GPU", value("%.0f %%", summary.gpu).c_str(), gpu, ui_kit::loadColour(gpu));
+            const double vram = summary.vramTotal > 0.0 ? summary.vramUsed / summary.vramTotal : NAN;
+            const std::string vramText = std::isfinite(vram)
+                ? textf("%.1f / %.0f %s", summary.vramUsed, summary.vramTotal, pick("Go", "GB")) : "—";
+            ui_kit::liveMeter("VRAM", vramText.c_str(), vram, ui_kit::loadColour(vram));
+            cyui::divider(6.0f);
+            {
+                cyui::ScopedDisabled disabled(demoMode);
+                if (cyui::iconTextButton(paused ? cyui::icon::play : cyui::icon::pause,
+                        paused ? ui_locale::tr("Reprendre") : pick("Mettre en pause", "Pause updates"),
+                        paused ? cyui::Variant::primary : cyui::Variant::secondary, ImVec2(width, 0)))
+                    togglePause();
+            }
+            cyui::tooltip(ui_locale::tr("Suspendre ou reprendre la collecte"));
+            const float zoomWidth = ImGui::GetFrameHeight() * 2.0f + cyui::dp(42.0f);
+            zoomControls(zoomWidth);
+            ImGui::SameLine(0.0f, cyui::dp(6.0f));
+            languageCombo(ImGui::GetContentRegionAvail().x);
+        }
+        sidebarFooterHeight = ImGui::GetCursorPosY() - start;
+    }
     void statusBar()
     {
         if (cyui::beginStatusBar("##status")) {
@@ -1078,127 +1228,188 @@ struct AppUi::State {
             else if (!statusMessage.empty()) cyui::statusText(cyui::Tone::success, "%s", statusMessage.c_str());
             else if (hasSnapshot) cyui::statusText(cyui::Tone::neutral, ui_locale::tr("1 s · Collecte %.1f ms · %zu processus"), snapshot.collectMs, snapshot.processes.size());
             else cyui::statusText(cyui::Tone::neutral, ui_locale::tr("Connexion au collecteur..."));
+            const char* keys = pick("Ctrl+1–6 pages · Ctrl+F recherche · Ctrl +/− taille du texte",
+                "Ctrl+1–6 pages · Ctrl+F search · Ctrl +/− text size");
+            float keysWidth {};
+            {
+                cyui::ScopedFont font(nullptr, 0.86f);
+                keysWidth = ImGui::CalcTextSize(keys).x;
+            }
             ImGui::SameLine();
-            cyui::alignRight(cyui::dp(235.0f));
-            cyui::textFaint(ui_locale::french() ? "Ctrl+1–6 · Ctrl+F · Ctrl/Maj" : "Ctrl+1–6 · Ctrl+F · Ctrl/Shift");
+            cyui::alignRight(keysWidth);
+            cyui::statusText(cyui::Tone::neutral, "%s", keys);
         }
         cyui::endStatusBar();
     }
-    void topBar()
+
+    // -------------------------------------------------------------- processes
+    template <typename Content>
+    void withInspector(const char* id, Content&& content)
     {
-        if (cyui::beginTopBar("##top")) {
-            const float width = ImGui::GetWindowWidth();
-            const bool compact = width < cyui::dp(1050.0f);
-            const bool allPages = width >= cyui::dp(1160.0f);
-            cyui::heading("CyWinTask", 3);
-            if (demoMode && allPages) { ImGui::SameLine(); cyui::badge(ui_locale::tr("DÉMO"), cyui::Tone::warning); }
-            ImGui::SameLine(0.0f, cyui::dp(compact ? 8.0f : 18.0f));
-            const char* pages[] {ui_locale::tr("Processus"), "Performance", "Assistant",
-                "Console", ui_locale::french() ? "Températures" : "Temperatures",
-                ui_locale::french() ? "Informations" : "System info"};
-            int page = activePage();
-            if (allPages) {
-                if (cyui::segmented("##page", pages, 6, &page, cyui::dp(510.0f))) {
-                    if (page == 2) switchAssistant();
-                    else if (page >= 3) switchUtility(page);
-                    else switchPage(page == 1);
-                }
-            } else {
-                int mainPage = std::min(page, 2);
-                if (cyui::segmented("##page", pages, 3, &mainPage, cyui::dp(compact ? 220.0f : 300.0f))) {
-                    if (mainPage == 2) switchAssistant(); else switchPage(mainPage == 1);
-                }
-                ImGui::SameLine(0.0f, cyui::dp(5.0f));
-                if (cyui::button(ui_locale::french() ? "Plus" : "More",
-                        page >= 3 ? cyui::Variant::primary : cyui::Variant::secondary))
-                    ImGui::OpenPopup("##morePages");
-                if (ImGui::BeginPopup("##morePages")) {
-                    for (int i = 3; i < 6; ++i)
-                        if (ImGui::MenuItem(pages[i], nullptr, activePage() == i)) switchUtility(i);
-                    ImGui::EndPopup();
-                }
-            }
-            ImGui::SameLine();
-            if (width >= cyui::dp(1160.0f) && hasSnapshot) {
-                if (width >= cyui::dp(1400.0f)) cyui::alignRight(cyui::dp(580.0f));
-                const auto& colors = cyui::palette();
-                cyui::textDim("CPU"); ImGui::SameLine(0.0f, cyui::dp(4.0f));
-                cyui::textColoured(colors.info, "%.0f %%", snapshot.cpu);
-                ImGui::SameLine(0.0f, cyui::dp(12.0f));
-                cyui::textDim("RAM"); ImGui::SameLine(0.0f, cyui::dp(4.0f));
-                cyui::textColoured(colors.text, "%.0f %%", snapshot.memoryTotalGb > 0
-                    ? snapshot.memoryUsedGb / snapshot.memoryTotalGb * 100.0 : 0.0);
-                ImGui::SameLine(0.0f, cyui::dp(12.0f));
-                cyui::textDim(ui_locale::tr("Processus")); ImGui::SameLine(0.0f, cyui::dp(4.0f));
-                cyui::textColoured(colors.text, "%zu", snapshot.processes.size());
-                ImGui::SameLine();
-            }
-            cyui::alignRight(cyui::dp(245.0f));
-            if (compact) {
-                if (cyui::iconButton(cyui::icon::zoomOut, ui_locale::french() ? "Réduire le texte" : "Smaller text"))
-                    ui_scale::adjust(-10);
-                ImGui::SameLine(0.0f, cyui::dp(3.0f));
-                ImGui::Text("%d %%", ui_scale::percent());
-                ImGui::SameLine(0.0f, cyui::dp(3.0f));
-                if (cyui::iconButton(cyui::icon::zoomIn, ui_locale::french() ? "Agrandir le texte" : "Larger text"))
-                    ui_scale::adjust(10);
-            } else {
-                if (cyui::iconButton(cyui::icon::zoomOut, ui_locale::french() ? "Réduire le texte" : "Smaller text"))
-                    ui_scale::adjust(-10);
-                ImGui::SameLine(0.0f, cyui::dp(4.0f));
-                ImGui::Text("%d %%", ui_scale::percent());
-                ImGui::SameLine(0.0f, cyui::dp(4.0f));
-                if (cyui::iconButton(cyui::icon::zoomIn, ui_locale::french() ? "Agrandir le texte" : "Larger text"))
-                    ui_scale::adjust(10);
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(cyui::dp(75.0f));
-            const char* languages[] { "English", "Français" };
-            int language = ui_locale::french() ? 1 : 0;
-            if (ImGui::Combo("##language", &language, languages, 2)) {
-                ui_locale::setFrench(language == 1);
-                cyui::setLocale(language == 1 ? "fr" : "en");
-                dirty = true;
-                if (auto* window = static_cast<HWND>(ImGui::GetMainViewport()->PlatformHandleRaw))
-                    SetWindowTextW(window, language == 1
-                        ? L"CyWinTask 0.10.1 — Gestionnaire des tâches" : L"CyWinTask 0.10.1 — Task Manager");
-            }
-            ImGui::SameLine();
-            ImGui::BeginDisabled(demoMode);
-            if (cyui::iconTextButton(paused ? cyui::icon::play : cyui::icon::pause,
-                    paused ? ui_locale::tr("Reprendre") : ui_locale::tr("Pause"), cyui::Variant::secondary)) {
-                paused = !paused;
-                bridge.send(paused ? "P 1\n" : "P 0\n");
-                updateHardwareActivity();
-            }
-            ImGui::EndDisabled();
-            cyui::tooltip(ui_locale::tr("Suspendre ou reprendre la collecte"));
+        const ImVec2 available = ImGui::GetContentRegionAvail();
+        const float gap = cyui::dp(10.0f);
+        const float sideWidth = std::clamp(available.x * 0.25f, cyui::dp(260.0f), cyui::dp(330.0f));
+        const bool side = showProcessInspector && available.x - sideWidth - gap >= cyui::dp(600.0f);
+        const float bottomHeight = cyui::dp(compactProcesses ? 178.0f : 196.0f);
+        const bool bottom = showProcessInspector && !side && available.y >= bottomHeight + cyui::dp(220.0f);
+        const ImVec2 area(side ? available.x - sideWidth - gap : available.x,
+            bottom ? available.y - bottomHeight - gap : available.y);
+        ImGui::BeginChild(id, area, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        content(ImGui::GetContentRegionAvail());
+        ImGui::EndChild();
+        if (side) {
+            ImGui::SameLine(0.0f, gap);
+            processInspector(available.y, false);
+        } else if (bottom) {
+            ImGui::Dummy(ImVec2(0.0f, gap - ImGui::GetStyle().ItemSpacing.y * 2.0f));
+            processInspector(bottomHeight, true);
         }
-        cyui::endTopBar();
     }
-    void processTable(const float height)
+    void processes()
     {
-        buildRows();
-        constexpr ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuter
-            | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable
-            | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingStretchProp;
-        const float innerWidth = std::max(ImGui::GetContentRegionAvail().x, cyui::dp(1210.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
-            ImVec2(cyui::dp(5.0f), cyui::dp(compactProcesses ? 1.0f : 3.0f)));
-        if (!ImGui::BeginTable("##processes", 9, flags, ImVec2(0, height), innerWidth)) {
-            ImGui::PopStyleVar();
-            return;
+        std::size_t applications {};
+        for (const auto& process : snapshot.processes) if (process.category == 0) ++applications;
+        const std::string subtitle = hasSnapshot
+            ? textf(pick("%zu processus · %zu applications", "%zu processes · %zu applications"),
+                snapshot.processes.size(), applications)
+            : std::string(ui_locale::tr("Connexion au collecteur..."));
+        const float viewsWidth = cyui::dp(300.0f);
+        ui_kit::beginPageHeader(ui_locale::tr("Processus"), subtitle.c_str(), viewsWidth);
+        const char* processViews[] {pick("Tous les processus", "All processes"), pick("Processus GPU", "GPU processes")};
+        cyui::alignRight(viewsWidth);
+        if (cyui::segmented("##processViews", processViews, 2, &processView, viewsWidth))
+            updateHardwareActivity();
+        ui_kit::endPageHeader();
+        if (hasSnapshot && !demoMode && ImGui::GetTime() >= nextTrustRefresh) {
+            if (refreshTrustScores()) dirty = true;
+            nextTrustRefresh = ImGui::GetTime() + 0.75;
         }
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(ui_locale::tr("Nom du processus"), ImGuiTableColumnFlags_DefaultSort, 0.31f, 0);
-        ImGui::TableSetupColumn(ui_locale::tr("Confiance"), ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 1);
-        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, 0.06f, 2);
-        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 3);
-        ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_PreferSortDescending, 0.09f, 4);
-        ImGui::TableSetupColumn(ui_locale::tr("Mémoire"), ImGuiTableColumnFlags_PreferSortDescending, 0.16f, 5);
-        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending, 0.06f, 6);
-        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 7);
-        ImGui::TableSetupColumn(ui_locale::tr("Durée"), ImGuiTableColumnFlags_PreferSortDescending, 0.07f, 8);
+        if (processView == 1) { gpuProcesses(); return; }
+        processToolbar();
+        cyui::space(8.0f);
+        if (hasSnapshot) buildRows();
+        withInspector("##processArea", [this](const ImVec2 size) {
+            if (!hasSnapshot) cyui::emptyState(ui_locale::tr("En attente des processus"), ui_locale::tr("Le collecteur démarre."), cyui::icon::refresh);
+            else if (display.empty()) cyui::emptyState(ui_locale::tr("Aucun processus trouvé"), ui_locale::tr("Modifiez la recherche ou le filtre."), cyui::icon::search);
+            else processTable(size);
+        });
+    }
+    void processToolbar()
+    {
+        if (!cyui::beginToolbar("##processToolbar")) { cyui::endToolbar(); return; }
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) focusSearch = true;
+        const auto& style = ImGui::GetStyle();
+        const float icon = ImGui::GetFrameHeight() + cyui::dp(2.0f);
+        const std::string endLabel = selected.size() > 1
+            ? ui_locale::tr("Arrêter ") + std::to_string(selected.size()) + ui_locale::tr(" tâches")
+            : std::string(ui_locale::tr("Arrêter la tâche"));
+        const char* detailsLabel = pick("Détails", "Details");
+        const float detailsWidth = cyui::buttonWidth(detailsLabel) + ImGui::GetFontSize() * 1.8f;
+        const float actionsWidth = detailsWidth + cyui::buttonWidth(endLabel.c_str()) + style.ItemSpacing.x;
+        const float comboWidth = cyui::dp(190.0f);
+        const float fixed = comboWidth + icon * 4.0f + actionsWidth + style.ItemSpacing.x * 6.0f + cyui::dp(40.0f);
+        // Too narrow for one row: the actions move to a second toolbar.
+        const bool twoRows = ImGui::GetContentRegionAvail().x - fixed < cyui::dp(200.0f);
+        const float searchWidth = std::clamp(ImGui::GetContentRegionAvail().x - fixed + (twoRows ? actionsWidth : 0.0f),
+            cyui::dp(150.0f), cyui::dp(520.0f));
+        if (focusSearch) { ImGui::SetKeyboardFocusHere(); focusSearch = false; }
+        if (cyui::searchField("##search", search, sizeof(search), ui_locale::tr("Nom, PID ou pid:1234..."), searchWidth))
+            dirty = true;
+        cyui::tooltip(ui_locale::tr("Saisissez pid:1234 pour isoler un processus précis."));
+        ImGui::SameLine();
+        const char* filters[] {pick("Tous les types", "All types"), ui_locale::tr("Applications"),
+            ui_locale::tr("Arrière-plan"), ui_locale::tr("Processus Windows")};
+        if (cyui::combo("##categoryFilter", &categoryFilter, filters, 4, comboWidth)) dirty = true;
+        cyui::toolbarSeparator();
+        if (cyui::iconButton(cyui::icon::link, pick("Processus associés : regrouper les processus enfants sous leur parent",
+                "Related processes: nest child processes under their parent"), treeMode)) {
+            treeMode = !treeMode; dirty = true;
+        }
+        ImGui::SameLine(0.0f, cyui::dp(2.0f));
+        if (cyui::iconButton(cyui::icon::tiles, pick("Regrouper par type (applications, arrière-plan, Windows)",
+                "Group by type (apps, background, Windows)"), groupByType)) {
+            groupByType = !groupByType; dirty = true;
+        }
+        ImGui::SameLine(0.0f, cyui::dp(2.0f));
+        if (cyui::iconButton(cyui::icon::list, pick("Lignes compactes", "Compact rows"), compactProcesses))
+            compactProcesses = !compactProcesses;
+        ImGui::SameLine(0.0f, cyui::dp(2.0f));
+        if (cyui::iconButton(cyui::icon::dockRight, pick("Panneau d'inspection", "Inspector panel"), showProcessInspector))
+            showProcessInspector = !showProcessInspector;
+        if (twoRows) {
+            cyui::endToolbar();
+            cyui::space(2.0f);
+            if (!cyui::beginToolbar("##processActions")) { cyui::endToolbar(); return; }
+        } else {
+            ImGui::SameLine();
+            cyui::alignRight(actionsWidth);
+        }
+        {
+            cyui::ScopedDisabled disabled(selected.size() != 1);
+            if (cyui::iconTextButton(cyui::icon::info, detailsLabel) && selected.size() == 1)
+                if (const auto* process = find(*selected.begin())) requestDetails(*process);
+        }
+        cyui::tooltip(pick("Informations avancées du processus sélectionné (double-clic)",
+            "Advanced information for the selected process (double-click)"));
+        ImGui::SameLine();
+        {
+            cyui::ScopedDisabled disabled(demoMode || selected.empty());
+            if (cyui::dangerButton(endLabel.c_str())) askStop();
+        }
+        cyui::endToolbar();
+    }
+    // Draws `text` right-aligned in the current table cell at `y`.
+    static void cellText(ImDrawList* draw, const float y, const ImU32 colour, const std::string& text, const bool right = true)
+    {
+        const float x = ImGui::GetCursorScreenPos().x;
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float textWidth = ImGui::CalcTextSize(text.c_str()).x;
+        draw->AddText(ImVec2(right ? x + std::max(0.0f, width - textWidth) : x, y), colour, text.c_str());
+    }
+    static std::string memoryText(const double bytes)
+    {
+        if (!std::isfinite(bytes)) return "—";
+        const double megabytes = bytes / 1048576.0;
+        if (megabytes >= 10240.0) return textf("%.1f %s", megabytes / 1024.0, pick("Go", "GB"));
+        return textf(megabytes < 100.0 ? "%.1f %s" : "%.0f %s", megabytes, pick("Mo", "MB"));
+    }
+    void trustCell(ImDrawList* draw, const TrustResult& score, const float top, const float rowHeight, const float textY)
+    {
+        const auto& palette = cyui::palette();
+        const ImVec2 cell = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        if (score.score >= 0) {
+            const float radius = cyui::dp(4.0f);
+            draw->AddCircleFilled(ImVec2(cell.x + radius, top + rowHeight * 0.5f), radius, ui_kit::trustColour(score.score));
+            const auto label = std::to_string(score.score);
+            draw->AddText(ImVec2(cell.x + radius * 2.0f + cyui::dp(7.0f), textY), palette.text, label.c_str());
+        } else draw->AddText(ImVec2(cell.x, textY), palette.textFaint, score.state == TrustState::pending ? "…" : "—");
+        if (ui_kit::hovering(ImVec2(cell.x, top), ImVec2(cell.x + width, top + rowHeight)))
+            ImGui::SetTooltip("%s\n%s\n%s", ui_locale::text(score.label).c_str(),
+                ui_locale::text(score.explanation).c_str(), ui_locale::tr("Indice local, pas une analyse antivirus."));
+    }
+    void processTable(const ImVec2 size)
+    {
+        constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuterH
+            | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoBordersInBodyUntilResize
+            | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable
+            | ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX
+            | ImGuiTableFlags_SizingFixedFit;
+        const float padY = cyui::dp(5.0f);
+        cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, ImVec2(cyui::dp(6.0f), padY));
+        const float innerWidth = size.x >= cyui::dp(660.0f) ? 0.0f : cyui::dp(660.0f);
+        if (!ImGui::BeginTable("##processes", 9, flags, size, innerWidth)) return;
+        ImGui::TableSetupScrollFreeze(1, 1);
+        ImGui::TableSetupColumn(ui_locale::tr("Nom du processus"), ImGuiTableColumnFlags_DefaultSort
+            | ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoReorder, 0.0f, 0);
+        ImGui::TableSetupColumn(ui_locale::tr("Confiance"), ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(78.0f), 1);
+        ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_PreferSortAscending, cyui::dp(60.0f), 2);
+        ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(70.0f), 3);
+        ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(70.0f), 4);
+        ImGui::TableSetupColumn(ui_locale::tr("Mémoire"), ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(90.0f), 5);
+        ImGui::TableSetupColumn("Threads", ImGuiTableColumnFlags_PreferSortDescending | ImGuiTableColumnFlags_DefaultHide, cyui::dp(64.0f), 6);
+        ImGui::TableSetupColumn("Handles", ImGuiTableColumnFlags_PreferSortDescending | ImGuiTableColumnFlags_DefaultHide, cyui::dp(68.0f), 7);
+        ImGui::TableSetupColumn(ui_locale::tr("Durée"), ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(96.0f), 8);
         ImGui::TableHeadersRow();
         if (auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsDirty && specs->SpecsCount > 0) {
             sortColumn = static_cast<int>(specs->Specs[0].ColumnUserID);
@@ -1208,244 +1419,283 @@ struct AppUi::State {
             buildRows();
         }
         const auto& palette = cyui::palette();
-        const float rowHeight = cyui::dp(compactProcesses ? 23.0f : 30.0f);
+        const float rowHeight = cyui::dp(compactProcesses ? 26.0f : 32.0f);
+        const float indentStep = cyui::dp(16.0f);
+        auto* draw = ImGui::GetWindowDrawList();
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(display.size()), rowHeight);
         while (clipper.Step()) for (int displayIndex = clipper.DisplayStart; displayIndex < clipper.DisplayEnd; ++displayIndex) {
             const auto& row = display[displayIndex];
             ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
             ImGui::TableSetColumnIndex(0);
+            const ImVec2 cell = ImGui::GetCursorScreenPos();
+            const float top = cell.y - padY;
+            const float textY = top + (rowHeight - ImGui::GetFontSize()) * 0.5f;
             if (row.groupHeader) {
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, palette.bg4);
-                cyui::textColoured(palette.accentHover, "%s", row.title.c_str());
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.bg2);
+                {
+                    cyui::ScopedFont font(cyui::boldFont(), 0.92f);
+                    draw->AddText(ImVec2(cell.x, top + (rowHeight - ImGui::GetFontSize()) * 0.5f),
+                        palette.textDim, row.title.c_str());
+                }
+                ImGui::Dummy(ImVec2(0.0f, rowHeight - padY * 2.0f));
                 continue;
             }
             const auto& process = snapshot.processes[row.index];
             const Key key = identity(process);
             const bool active = selected.count(key) != 0;
-            const auto position = ImGui::GetCursorScreenPos();
+            const bool open = expanded.count(key) != 0;
+            const float nameWidth = ImGui::GetContentRegionAvail().x;
             const std::string id = "##row" + std::to_string(process.id) + "_" + std::to_string(process.created);
-            if (active)
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, palette.selection);
-            else if (row.depth > 0 || row.hasChildren)
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, row.depth ? palette.bg3 : palette.bg4);
-            const bool clicked = ImGui::Selectable(id.c_str(), active,
-                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick,
-                ImVec2(0, rowHeight - cyui::dp(compactProcesses ? 2.0f : 6.0f)));
-            const auto bounds = ImGui::GetItemRectMax();
-            const bool arrowClick = row.hasChildren && ImGui::IsItemHovered()
-                && ImGui::GetMousePos().x < position.x + cyui::dp(18.0f + row.depth * 15.0f);
+            if (active) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.selection);
+            const bool clicked = ImGui::Selectable(id.c_str(), false,
+                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                ImVec2(0.0f, rowHeight - padY * 2.0f));
+            const float chevronRight = cell.x + row.depth * indentStep + indentStep;
+            const bool overChevron = row.hasChildren && ImGui::IsItemHovered() && ImGui::GetMousePos().x < chevronRight;
             if (clicked) {
-                if (arrowClick) { if (!expanded.erase(key)) expanded.insert(key); dirty = true; }
-                else { select(key, displayIndex); if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) requestDetails(process); }
+                if (overChevron) { if (!expanded.erase(key)) expanded.insert(key); dirty = true; }
+                else {
+                    select(key, displayIndex);
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) requestDetails(process);
+                }
             }
-            auto* draw = ImGui::GetWindowDrawList();
-            const float textY = position.y + (rowHeight - ImGui::GetFontSize()) * 0.5f;
-            if (treeMode && (row.depth > 0 || row.hasChildren)) {
-                const float rail = position.x + cyui::dp(2.0f);
-                draw->AddRectFilled(ImVec2(rail, position.y), ImVec2(rail + cyui::dp(2.0f), position.y + rowHeight),
-                    palette.lineStrong);
-                if (row.depth == 0) draw->AddLine(position, ImVec2(bounds.x, position.y), palette.lineStrong);
-            }
-            if (active) {
-                draw->AddRect(position, ImVec2(bounds.x, position.y + rowHeight), palette.accent, 0, 0, cyui::dp(2.0f));
-                draw->AddRectFilled(position, ImVec2(position.x + cyui::dp(4.0f), position.y + rowHeight), palette.accent);
-            }
-            float x = position.x + cyui::dp(5.0f + row.depth * 15.0f);
-            if (row.hasChildren) {
-                draw->AddText(ImVec2(x, textY), palette.accentHover,
-                    expanded.count(key) ? "▼" : "▶");
-            }
-            x += cyui::dp(17.0f);
-            if (auto* icon = icons.get(process.path)) {
-                const float iconSize = cyui::dp(compactProcesses ? 15.0f : 18.0f);
-                const float iconY = position.y + (rowHeight - iconSize) * 0.5f;
-                draw->AddImage(ImTextureRef(icon), ImVec2(x, iconY),
-                    ImVec2(x + iconSize, iconY + iconSize));
-            } else draw->AddText(ImVec2(x, textY), palette.textFaint, cyui::icon::code);
-            x += cyui::dp(28.0f);
-            const auto available = std::max(0.0f, ImGui::GetCurrentTable()->Columns[0].WidthGiven - (x - position.x) - cyui::dp(8.0f));
-            const std::string title = row.hasChildren
-                ? process.name + " (" + std::to_string(row.descendants) + ")" : process.name;
-            cyui::clippedText(draw, ImVec2(x, textY), available,
-                active ? palette.accentText : palette.text, title.c_str());
             if (ImGui::BeginPopupContextItem(id.c_str())) {
                 if (!selected.count(key)) { selected.clear(); selected.insert(key); }
                 processActions(process);
                 ImGui::EndPopup();
             }
-            ImGui::TableSetColumnIndex(1); trustBar(trustScores[row.index], cyui::dp(compactProcesses ? 17.0f : 22.0f));
-            ImGui::TableSetColumnIndex(2); ImGui::Text("%d", process.id);
-            ImGui::TableSetColumnIndex(3); usageBar(process.cpu, std::isfinite(process.cpu) ? format("%.1f %%", process.cpu) : "—", false,
-                compactProcesses ? 18.0f : 22.0f);
+            if (active)
+                draw->AddRectFilled(ImVec2(cell.x - cyui::dp(6.0f), top),
+                    ImVec2(cell.x - cyui::dp(3.0f), top + rowHeight), palette.accent);
+            if (treeMode)
+                for (int level = 0; level < row.depth; ++level) {
+                    const float x = cell.x + level * indentStep + cyui::dp(6.0f);
+                    draw->AddLine(ImVec2(x, top), ImVec2(x, top + rowHeight), palette.line, std::max(1.0f, cyui::dp(1.0f)));
+                }
+            float x = cell.x + row.depth * indentStep;
+            if (row.hasChildren) {
+                const char* glyph = cyui::iconsAvailable()
+                    ? (open ? cyui::icon::chevronDown : cyui::icon::chevronRight) : (open ? "v" : ">");
+                const float glyphSize = ImGui::GetFontSize() * 0.68f;
+                draw->AddText(ImGui::GetFont(), glyphSize, ImVec2(x + cyui::dp(1.0f), top + (rowHeight - glyphSize) * 0.5f),
+                    overChevron ? palette.text : palette.textDim, glyph);
+            }
+            x += indentStep;
+            const float iconSize = cyui::dp(compactProcesses ? 16.0f : 20.0f);
+            const float iconY = top + (rowHeight - iconSize) * 0.5f;
+            if (auto* icon = icons.get(process.path))
+                draw->AddImage(ImTextureRef(icon), ImVec2(x, iconY), ImVec2(x + iconSize, iconY + iconSize));
+            else ui_kit::letterAvatar(draw, ImVec2(x, iconY), iconSize, process.name.c_str());
+            x += iconSize + cyui::dp(8.0f);
+            const float room = std::max(0.0f, cell.x + nameWidth - x);
+            const ImU32 nameColour = active ? palette.text : palette.text;
+            if (row.hasChildren) {
+                const std::string suffix = " " + std::to_string(row.descendants);
+                const float suffixWidth = ImGui::CalcTextSize(suffix.c_str()).x;
+                const float nameRoom = std::max(0.0f, room - suffixWidth);
+                cyui::clippedText(draw, ImVec2(x, textY), nameRoom, nameColour, process.name.c_str());
+                const float drawn = std::min(nameRoom, ImGui::CalcTextSize(process.name.c_str()).x);
+                draw->AddText(ImVec2(x + drawn, textY), palette.textFaint, suffix.c_str());
+            } else cyui::clippedText(draw, ImVec2(x, textY), room, nameColour, process.name.c_str());
+
+            ImGui::TableSetColumnIndex(1);
+            trustCell(draw, trustScores[row.index], top, rowHeight, textY);
+            ImGui::TableSetColumnIndex(2);
+            cellText(draw, textY, palette.textDim, std::to_string(process.id));
+            ImGui::TableSetColumnIndex(3);
+            ui_kit::tintCell(process.cpu / 100.0);
+            cellText(draw, textY, std::isfinite(process.cpu) && process.cpu >= 0.05 ? palette.text : palette.textFaint,
+                std::isfinite(process.cpu) ? format("%.1f %%", process.cpu) : "—");
             const double gpu = treeMode && row.hasChildren ? process.gpuGroup : process.gpu;
             ImGui::TableSetColumnIndex(4);
-            usageBar(gpu, std::isfinite(gpu) ? format("%.1f %%", gpu) : "—", false,
-                compactProcesses ? 18.0f : 22.0f);
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                ImGui::TextUnformatted(treeMode && row.hasChildren
-                    ? ui_locale::tr("Groupe avec processus associés") : ui_locale::tr("Processus seul"));
-                ImGui::TextUnformatted(ui_locale::french() ? "Moteur GPU le plus sollicité" : "Busiest GPU engine");
-                if (std::isfinite(process.gpuLocalBytes))
-                    ImGui::Text(ui_locale::french() ? "VRAM locale : %.1f Mo" : "Local VRAM: %.1f MB",
-                        process.gpuLocalBytes / 1048576.0);
-                if (std::isfinite(process.gpuSharedBytes))
-                    ImGui::Text(ui_locale::french() ? "Mémoire GPU partagée : %.1f Mo" : "Shared GPU memory: %.1f MB",
-                        process.gpuSharedBytes / 1048576.0);
-                ImGui::EndTooltip();
+            ui_kit::tintCell(gpu / 100.0);
+            {
+                const ImVec2 gpuCell = ImGui::GetCursorScreenPos();
+                const float gpuWidth = ImGui::GetContentRegionAvail().x;
+                cellText(draw, textY, std::isfinite(gpu) && gpu >= 0.05 ? palette.text : palette.textFaint,
+                    std::isfinite(gpu) ? format("%.1f %%", gpu) : "—");
+                if (ui_kit::hovering(ImVec2(gpuCell.x, top), ImVec2(gpuCell.x + gpuWidth, top + rowHeight))) {
+                    ImGui::BeginTooltip();
+                    ImGui::TextUnformatted(treeMode && row.hasChildren
+                        ? ui_locale::tr("Groupe avec processus associés") : ui_locale::tr("Processus seul"));
+                    cyui::textDim("%s", pick("Moteur GPU le plus sollicité", "Busiest GPU engine"));
+                    if (std::isfinite(process.gpuLocalBytes))
+                        ImGui::Text(pick("VRAM locale : %s", "Local VRAM: %s"), memoryText(process.gpuLocalBytes).c_str());
+                    if (std::isfinite(process.gpuSharedBytes))
+                        ImGui::Text(pick("Mémoire GPU partagée : %s", "Shared GPU memory: %s"), memoryText(process.gpuSharedBytes).c_str());
+                    ImGui::EndTooltip();
+                }
             }
-            const double memoryMb = process.workingSet / 1048576.0;
-            const double memoryPercent = snapshot.memoryTotalGb > 0 ? memoryMb / (snapshot.memoryTotalGb * 1024.0) * 100.0 : 0.0;
+            const double memoryPercent = snapshot.memoryTotalGb > 0
+                ? process.workingSet / 1048576.0 / (snapshot.memoryTotalGb * 1024.0) * 100.0 : 0.0;
             ImGui::TableSetColumnIndex(5);
-            usageBar(memoryPercent, format(ui_locale::tr("%.1f Mo"), memoryMb) + " · " + format("%.1f %%", memoryPercent), true,
-                compactProcesses ? 18.0f : 22.0f);
-            ImGui::TableSetColumnIndex(6); ImGui::Text("%d", process.threads);
-            ImGui::TableSetColumnIndex(7); ImGui::Text("%d", process.handles);
-            ImGui::TableSetColumnIndex(8); ImGui::TextUnformatted(processAge(process.created, snapshot.unixMs).c_str());
+            ui_kit::tintCell(memoryPercent * 5.0 / 100.0);
+            {
+                const ImVec2 memoryCell = ImGui::GetCursorScreenPos();
+                const float memoryWidth = ImGui::GetContentRegionAvail().x;
+                cellText(draw, textY, palette.text, memoryText(static_cast<double>(process.workingSet)));
+                if (ui_kit::hovering(ImVec2(memoryCell.x, top), ImVec2(memoryCell.x + memoryWidth, top + rowHeight)))
+                    ImGui::SetTooltip(pick("%.1f %% de la mémoire physique", "%.1f %% of physical memory"), memoryPercent);
+            }
+            ImGui::TableSetColumnIndex(6);
+            cellText(draw, textY, palette.textDim, std::to_string(process.threads));
+            ImGui::TableSetColumnIndex(7);
+            cellText(draw, textY, palette.textDim, std::to_string(process.handles));
+            ImGui::TableSetColumnIndex(8);
+            cellText(draw, textY, palette.textDim, processAge(process.created, snapshot.unixMs));
         }
         ImGui::EndTable();
-        ImGui::PopStyleVar();
     }
-    void processInspector()
+    void processInspector(const float heightPixels, const bool horizontal)
     {
-        if (cyui::beginCard("##processInspector", nullptr, compactProcesses ? 120.0f : 145.0f)) {
+        const auto& palette = cyui::palette();
+        if (cyui::beginCard("##processInspector", nullptr, heightPixels / cyui::dp(1.0f))) {
             if (selected.empty()) {
-                cyui::heading(ui_locale::tr("Inspection rapide"), 3);
-                cyui::textDim(ui_locale::tr("Sélectionnez un processus pour voir son identité, son chemin et la note de confiance."));
-                cyui::textFaint(ui_locale::tr("Indice local basé sur la signature Authenticode et l'emplacement du fichier ; ce n'est pas un antivirus."));
+                cyui::emptyState(pick("Aucune sélection", "Nothing selected"),
+                    pick("Sélectionnez un processus pour l'inspecter.", "Select a process to inspect it."), cyui::icon::view);
             } else if (selected.size() > 1) {
-                cyui::heading(ui_locale::tr("Sélection multiple"), 3);
-                cyui::textDim(ui_locale::tr("%zu processus sélectionnés · clic droit pour les actions disponibles."), selected.size());
+                double cpu {}, memory {};
+                std::vector<const ProcessInfo*> chosen;
+                for (const auto& key : selected) if (const auto* process = find(key)) {
+                    chosen.push_back(process);
+                    if (std::isfinite(process->cpu)) cpu += process->cpu;
+                    memory += static_cast<double>(process->workingSet);
+                }
+                cyui::heading(textf(ui_locale::tr("%zu processus sélectionnés · clic droit pour les actions disponibles."),
+                    selected.size()).c_str(), 3);
+                cyui::space(4.0f);
+                if (cyui::beginProperties("##selectionTotals", 110.0f)) {
+                    cyui::property(pick("CPU cumulé", "Total CPU"));
+                    ImGui::Text("%.1f %%", cpu);
+                    cyui::property(pick("Mémoire cumulée", "Total memory"));
+                    ImGui::TextUnformatted(memoryText(memory).c_str());
+                    cyui::endProperties();
+                }
+                cyui::space(4.0f);
+                for (std::size_t i = 0; i < std::min<std::size_t>(8, chosen.size()); ++i)
+                    cyui::textDim("%s · PID %d", chosen[i]->name.c_str(), chosen[i]->id);
+                if (chosen.size() > 8) cyui::textFaint(ui_locale::tr("... et %zu autres"), chosen.size() - 8);
+                cyui::space(8.0f);
+                cyui::ScopedDisabled disabled(demoMode);
+                const std::string label = ui_locale::tr("Arrêter ") + std::to_string(selected.size()) + ui_locale::tr(" tâches");
+                if (cyui::dangerButton(label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) askStop();
             } else if (const auto* process = find(*selected.begin())) {
                 const auto index = static_cast<std::size_t>(process - snapshot.processes.data());
-                const auto& result = trustScores[index];
-                cyui::heading(process->name.c_str(), 3);
-                ImGui::SameLine(0.0f, cyui::dp(16.0f));
-                if (result.score >= 0) cyui::textColoured(result.score >= 80 ? cyui::palette().success
-                    : result.score >= 55 ? cyui::palette().info
-                    : result.score >= 30 ? cyui::palette().warning : cyui::palette().error,
-                    ui_locale::tr("Confiance %d/100 · %s"), result.score, ui_locale::text(result.label).c_str());
-                else cyui::textFaint(ui_locale::tr("Confiance — · %s"), ui_locale::text(result.label).c_str());
-                cyui::textDim(ui_locale::tr("PID %d · Parent %d · %s · %s · CPU %.1f %% · GPU %s · %.1f Mo"),
-                    process->id, process->parent, categoryName(process->category),
-                    processAge(process->created, snapshot.unixMs).c_str(),
-                    process->cpu, std::isfinite(process->gpu) ? format("%.1f %%", process->gpu).c_str() : "—",
-                    process->workingSet / 1048576.0);
-                if (std::isfinite(process->gpuLocalBytes) || std::isfinite(process->gpuSharedBytes))
-                    cyui::textDim(ui_locale::french()
-                        ? "VRAM locale %s Mo · GPU partagé %s Mo · engagé %s Mo"
-                        : "Local VRAM %s MB · shared GPU %s MB · committed %s MB",
-                        std::isfinite(process->gpuLocalBytes) ? format("%.1f", process->gpuLocalBytes / 1048576.0).c_str() : "—",
-                        std::isfinite(process->gpuSharedBytes) ? format("%.1f", process->gpuSharedBytes / 1048576.0).c_str() : "—",
-                        std::isfinite(process->gpuCommittedBytes) ? format("%.1f", process->gpuCommittedBytes / 1048576.0).c_str() : "—");
-                cyui::textFaint("%s", ui_locale::text(result.explanation).c_str());
-                if (!process->path.empty()) {
-                    cyui::textDim(ui_locale::tr("Fichier : %s"), process->path.c_str());
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", process->path.c_str());
-                } else cyui::textFaint(ui_locale::tr("Chemin du fichier indisponible."));
+                const TrustResult unknown {};
+                const auto& rating = index < trustScores.size() ? trustScores[index] : unknown;
+                const auto identityBlock = [&] {
+                    const float avatar = cyui::dp(36.0f);
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    auto* draw = ImGui::GetWindowDrawList();
+                    if (auto* icon = icons.get(process->path))
+                        draw->AddImage(ImTextureRef(icon), at, ImVec2(at.x + avatar, at.y + avatar));
+                    else ui_kit::letterAvatar(draw, at, avatar, process->name.c_str());
+                    ImGui::Dummy(ImVec2(avatar, avatar));
+                    ImGui::SameLine(0.0f, cyui::dp(10.0f));
+                    ImGui::BeginGroup();
+                    const float room = ImGui::GetContentRegionAvail().x;
+                    {
+                        cyui::ScopedFont font(cyui::boldFont(), 1.1f);
+                        const ImVec2 name = ImGui::GetCursorScreenPos();
+                        cyui::clippedText(ImGui::GetWindowDrawList(), name, room, palette.text, process->name.c_str());
+                        ImGui::Dummy(ImVec2(room, ImGui::GetFontSize()));
+                    }
+                    cyui::textDim("%s · PID %d", categoryName(process->category), process->id);
+                    ImGui::EndGroup();
+                };
+                const auto trustBlock = [&] {
+                    cyui::overline(pick("CONFIANCE", "TRUST"), palette.textFaint);
+                    if (rating.score >= 0) {
+                        const float lineTop = ImGui::GetCursorPosY();
+                        {
+                            cyui::ScopedFont font(cyui::boldFont(), 1.4f);
+                            cyui::textColoured(ui_kit::trustColour(rating.score), "%d", rating.score);
+                        }
+                        ImGui::SameLine(0.0f, cyui::dp(6.0f));
+                        ImGui::SetCursorPosY(lineTop + ImGui::GetFontSize() * 0.32f);
+                        cyui::textDim("/ 100 · %s", ui_locale::text(rating.label).c_str());
+                        const auto tone = rating.score >= 80 ? cyui::Tone::success : rating.score >= 55 ? cyui::Tone::info
+                            : rating.score >= 30 ? cyui::Tone::warning : cyui::Tone::error;
+                        cyui::progressBar(rating.score / 100.0f, ImVec2(-1.0f, cyui::dp(4.0f)), nullptr, tone);
+                    } else cyui::textDim("%s", ui_locale::text(rating.label).c_str());
+                    ImGui::PushTextWrapPos(0.0f);
+                    cyui::textFaint("%s", ui_locale::text(rating.explanation).c_str());
+                    ImGui::PopTextWrapPos();
+                };
+                const auto propertiesBlock = [&] {
+                    if (!cyui::beginProperties("##inspectorProperties", 96.0f)) return;
+                    cyui::property(pick("Parent", "Parent")); ImGui::Text("%d", process->parent);
+                    cyui::property(ui_locale::tr("Durée"));
+                    ImGui::TextUnformatted(processAge(process->created, snapshot.unixMs).c_str());
+                    cyui::property("CPU");
+                    ImGui::TextUnformatted(std::isfinite(process->cpu) ? format("%.1f %%", process->cpu).c_str() : "—");
+                    cyui::property("GPU");
+                    ImGui::TextUnformatted(std::isfinite(process->gpu) ? format("%.1f %%", process->gpu).c_str() : "—");
+                    cyui::property(ui_locale::tr("Mémoire"));
+                    ImGui::TextUnformatted(memoryText(static_cast<double>(process->workingSet)).c_str());
+                    cyui::property("Threads / Handles");
+                    ImGui::Text("%d / %d", process->threads, process->handles);
+                    if (std::isfinite(process->gpuLocalBytes) || std::isfinite(process->gpuSharedBytes)) {
+                        cyui::property(pick("VRAM locale", "Local VRAM"));
+                        ImGui::TextUnformatted(memoryText(process->gpuLocalBytes).c_str());
+                        cyui::property(pick("GPU partagé", "Shared GPU"));
+                        ImGui::TextUnformatted(memoryText(process->gpuSharedBytes).c_str());
+                    }
+                    cyui::endProperties();
+                };
+                const auto pathBlock = [&] {
+                    cyui::overline(pick("EMPLACEMENT", "LOCATION"), palette.textFaint);
+                    if (process->path.empty()) { cyui::textFaint(ui_locale::tr("Chemin du fichier indisponible.")); return; }
+                    {
+                        cyui::ScopedFont font(cyui::monoFont(), 0.86f);
+                        ImGui::PushTextWrapPos(0.0f);
+                        cyui::textDim("%s", process->path.c_str());
+                        ImGui::PopTextWrapPos();
+                    }
+                    if (cyui::iconTextButton(cyui::icon::folder, pick("Ouvrir", "Open"), cyui::Variant::ghost)) {
+                        const auto path = wide(process->path);
+                        const auto parameter = L"/select,\"" + path + L"\"";
+                        ShellExecuteW(nullptr, L"open", L"explorer.exe", parameter.c_str(), nullptr, SW_SHOWNORMAL);
+                    }
+                    cyui::tooltip(ui_locale::tr("Ouvrir l'emplacement"));
+                    ImGui::SameLine(0.0f, cyui::dp(4.0f));
+                    if (cyui::iconTextButton(cyui::icon::copy, pick("Copier", "Copy"), cyui::Variant::ghost))
+                        ImGui::SetClipboardText(process->path.c_str());
+                    cyui::tooltip(ui_locale::tr("Copier le chemin"));
+                };
+                const auto actionsBlock = [&] {
+                    const float width = ImGui::GetContentRegionAvail().x;
+                    if (cyui::iconTextButton(cyui::icon::info, pick("Informations avancées", "Advanced information"),
+                            cyui::Variant::secondary, ImVec2(width, 0.0f)))
+                        requestDetails(*process);
+                    cyui::ScopedDisabled disabled(demoMode);
+                    if (cyui::dangerButton(ui_locale::tr("Arrêter le processus..."), ImVec2(width, 0.0f))) askStop();
+                };
+                if (horizontal && ImGui::BeginTable("##inspectorColumns", 3,
+                        ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_BordersInnerV)) {
+                    cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(10.0f, 0.0f));
+                    ImGui::TableNextColumn(); identityBlock(); cyui::space(6.0f); trustBlock();
+                    ImGui::TableNextColumn(); propertiesBlock();
+                    ImGui::TableNextColumn(); pathBlock(); cyui::space(6.0f); actionsBlock();
+                    ImGui::EndTable();
+                } else if (!horizontal) {
+                    identityBlock();
+                    cyui::space(10.0f);
+                    trustBlock();
+                    cyui::divider(8.0f);
+                    propertiesBlock();
+                    cyui::divider(8.0f);
+                    pathBlock();
+                    cyui::space(10.0f);
+                    actionsBlock();
+                }
             }
         }
         cyui::endCard();
     }
-    void processes()
-    {
-        if (!compactProcesses) {
-            cyui::panelHeader(ui_locale::tr("Processus"), ui_locale::tr("Recherche, tri et inspection des tâches en cours"));
-            cyui::space(4);
-        }
-        const char* processViews[] {ui_locale::french() ? "Tous les processus" : "All processes",
-            ui_locale::french() ? "Processus GPU" : "GPU processes"};
-        if (cyui::segmented("##processViews", processViews, 2, &processView, cyui::dp(340.0f)))
-            updateHardwareActivity();
-        if (hasSnapshot && ImGui::GetContentRegionAvail().x > cyui::dp(510.0f)) {
-            double gpuUsage = NAN, vramUsed = 0.0, vramTotal = 0.0;
-            for (const auto& device : snapshot.devices) if (device.kind == "gpu") {
-                if (const auto* usage = metric(device, "usage"); usage && std::isfinite(usage->value))
-                    gpuUsage = std::isfinite(gpuUsage) ? std::max(gpuUsage, usage->value) : usage->value;
-                if (const auto* vram = metric(device, "dedicated"); vram && std::isfinite(vram->value)
-                    && std::isfinite(vram->maximum) && vram->maximum > 0.0) {
-                    vramUsed += vram->value; vramTotal += vram->maximum;
-                }
-            }
-            ImGui::SameLine();
-            cyui::alignRight(cyui::dp(460.0f));
-            cyui::textDim("CPU %.0f %%", snapshot.cpu); ImGui::SameLine(0.0f, cyui::dp(12.0f));
-            cyui::textDim("RAM %.0f %%", snapshot.memoryTotalGb > 0.0
-                ? snapshot.memoryUsedGb / snapshot.memoryTotalGb * 100.0 : 0.0);
-            ImGui::SameLine(0.0f, cyui::dp(12.0f));
-            if (std::isfinite(gpuUsage)) cyui::textDim("GPU %.0f %%", gpuUsage);
-            else cyui::textDim("GPU —");
-            ImGui::SameLine(0.0f, cyui::dp(12.0f));
-            if (vramTotal > 0.0) cyui::textDim("VRAM %.0f %%", vramUsed / vramTotal * 100.0);
-            else cyui::textDim("VRAM —");
-        }
-        cyui::space(5);
-        if (hasSnapshot && !demoMode && ImGui::GetTime() >= nextTrustRefresh) {
-            if (refreshTrustScores()) dirty = true;
-            nextTrustRefresh = ImGui::GetTime() + 0.75;
-        }
-        if (processView == 1) { gpuProcesses(); return; }
-        cyui::space(2);
-        if (cyui::beginToolbar("##processToolbar")) {
-            if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) focusSearch = true;
-            if (focusSearch) { ImGui::SetKeyboardFocusHere(); focusSearch = false; }
-            const float actions = cyui::dp(search[0] ? 325.0f : 255.0f);
-            const float width = std::max(cyui::dp(180.0f), ImGui::GetContentRegionAvail().x - actions);
-            if (cyui::searchField("##search", search, sizeof(search), ui_locale::tr("Nom, PID ou pid:1234..."), width))
-                dirty = true;
-            cyui::tooltip(ui_locale::tr("Saisissez pid:1234 pour isoler un processus précis."));
-            if (search[0]) {
-                ImGui::SameLine();
-                if (cyui::button(ui_locale::tr("Effacer"), cyui::Variant::ghost)) { search[0] = 0; dirty = true; }
-            }
-            ImGui::SameLine();
-            ImGui::BeginDisabled(selected.size() != 1);
-            if (cyui::button(ui_locale::tr("Inspecter"), cyui::Variant::secondary) && selected.size() == 1)
-                if (const auto* process = find(*selected.begin())) requestDetails(*process);
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::BeginDisabled(demoMode || selected.empty());
-            if (cyui::dangerButton(selected.size() > 1 ? (ui_locale::tr("Arrêter ") + std::to_string(selected.size()) + ui_locale::tr(" tâches")).c_str()
-                                                       : ui_locale::tr("Arrêter la tâche")))
-                askStop();
-            ImGui::EndDisabled();
-        }
-        cyui::endToolbar();
-        cyui::space(2);
-        const bool narrowFilters = ImGui::GetContentRegionAvail().x < cyui::dp(830.0f);
-        const auto filterOptions = [this] {
-            if (ImGui::Checkbox(ui_locale::tr("Regrouper par type"), &groupByType)) dirty = true;
-            ImGui::SameLine(0.0f, cyui::dp(16.0f));
-            if (ImGui::Checkbox(ui_locale::tr("Processus associés"), &treeMode)) dirty = true;
-            ImGui::SameLine(0.0f, cyui::dp(16.0f));
-            ImGui::Checkbox(ui_locale::tr("Compact"), &compactProcesses);
-            ImGui::SameLine(0.0f, cyui::dp(16.0f));
-            ImGui::Checkbox(ui_locale::tr("Inspection"), &showProcessInspector);
-        };
-        if (cyui::beginToolbar("##processFilters")) {
-            cyui::textDim(ui_locale::tr("Afficher")); ImGui::SameLine();
-            ImGui::SetNextItemWidth(cyui::dp(220.0f));
-            const char* filters[] { ui_locale::tr("Tous les processus"), ui_locale::tr("Applications"), ui_locale::tr("Arrière-plan"), ui_locale::tr("Processus Windows") };
-            if (ImGui::Combo("##categoryFilter", &categoryFilter, filters, 4)) dirty = true;
-            if (!narrowFilters) { ImGui::SameLine(0.0f, cyui::dp(16.0f)); filterOptions(); }
-        }
-        cyui::endToolbar();
-        if (narrowFilters) {
-            if (cyui::beginToolbar("##processFilterOptions")) filterOptions();
-            cyui::endToolbar();
-        }
-        cyui::space(2);
-        if (hasSnapshot) buildRows();
-        const float available = ImGui::GetContentRegionAvail().y;
-        const bool inspectorVisible = showProcessInspector && available >= cyui::dp(340.0f);
-        const float inspectorHeight = cyui::dp(compactProcesses ? 120.0f : 145.0f);
-        const float tableHeight = inspectorVisible ? std::max(cyui::dp(140.0f), available - inspectorHeight - cyui::dp(5.0f)) : available;
-        if (!hasSnapshot) cyui::emptyState(ui_locale::tr("En attente des processus"), ui_locale::tr("Le collecteur démarre."), cyui::icon::refresh);
-        else if (display.empty()) cyui::emptyState(ui_locale::tr("Aucun processus trouvé"), ui_locale::tr("Modifiez la recherche ou le filtre."), cyui::icon::search);
-        else processTable(tableHeight);
-        if (inspectorVisible) { cyui::space(2); processInspector(); }
-    }
+
+    // ------------------------------------------------------------ performance
     ImU32 seriesColor(const DeviceInfo& device, const MetricInfo& value) const
     {
         return cyui::categorical(seriesIndex(device, value));
@@ -1504,17 +1754,17 @@ struct AppUi::State {
         const auto axisLabel = [&unit](double value) {
             return format(value < 10.0 ? "%.1f" : "%.0f", value) + (unit.empty() ? "" : " " + unit);
         };
-        const float fontSize = std::max(cyui::dp(10.0f), ImGui::GetFontSize() * 0.78f);
+        const float fontSize = std::max(cyui::dp(10.0f), ImGui::GetFontSize() * 0.76f);
         auto* font = ImGui::GetFont();
         const auto labelWidth = [font, fontSize](const std::string& text) {
             return font->CalcTextSizeA(fontSize, 10000.0f, 0.0f, text.c_str()).x;
         };
-        const float leftMargin = std::max(cyui::dp(37.0f), labelWidth(axisLabel(leftMaximum)) + cyui::dp(7.0f));
+        const float leftMargin = std::max(cyui::dp(34.0f), labelWidth(axisLabel(leftMaximum)) + cyui::dp(7.0f));
         const double rateMaximum = disk && diskRateScale.count(device.id) ? diskRateScale.at(device.id) : 1.0;
         const float rightMargin = disk ? labelWidth(format("%.0f", rateMaximum) + ui_locale::tr(" Mo/s")) + cyui::dp(9.0f) : 0.0f;
         const float available = ImGui::GetContentRegionAvail().x;
         const float width = std::max(cyui::dp(50.0f), available - leftMargin - rightMargin);
-        const float bottomMargin = std::max(cyui::dp(17.0f), fontSize + cyui::dp(4.0f));
+        const float bottomMargin = std::max(cyui::dp(16.0f), fontSize + cyui::dp(4.0f));
         const ImVec2 start = ImGui::GetCursorScreenPos();
         ImGui::SetCursorScreenPos(ImVec2(start.x + leftMargin, start.y));
         const std::string id = "##plot_" + device.id + "_" + (series.empty() || !series.front() ? "empty" : series.front()->id);
@@ -1523,34 +1773,34 @@ struct AppUi::State {
         const ImVec2 plotMin = ImGui::GetItemRectMin();
         const ImVec2 plotMax = ImGui::GetItemRectMax();
         auto* draw = ImGui::GetWindowDrawList();
-        for (int step = 0; step <= 4; ++step) {
-            const float y = plotMax.y - (plotMax.y - plotMin.y) * step / 4.0f;
-            const auto left = axisLabel(leftMaximum * step / 4.0);
+        const ImU32 axisColour = cyui::palette().textFaint;
+        // Fewer ticks on short charts so the labels never overlap.
+        const int steps = plotMax.y - plotMin.y < cyui::dp(110.0f) ? 2 : 4;
+        for (int step = 0; step <= steps; ++step) {
+            const float y = plotMax.y - (plotMax.y - plotMin.y) * step / static_cast<float>(steps);
+            const auto left = axisLabel(leftMaximum * step / steps);
             draw->AddText(font, fontSize, ImVec2(plotMin.x - cyui::dp(5.0f) - labelWidth(left),
-                std::clamp(y - fontSize * 0.5f, plotMin.y, plotMax.y - fontSize)),
-                cyui::palette().textDim, left.c_str());
+                std::clamp(y - fontSize * 0.5f, plotMin.y, plotMax.y - fontSize)), axisColour, left.c_str());
             if (disk) {
-                const auto label = format("%.0f", rateMaximum * step / 4.0) + ui_locale::tr(" Mo/s");
-                draw->AddText(font, fontSize,
-                    ImVec2(plotMax.x + cyui::dp(3.0f),
-                        std::clamp(y - fontSize * 0.5f, plotMin.y, plotMax.y - fontSize)),
-                    cyui::palette().textDim, label.c_str());
+                const auto label = format("%.0f", rateMaximum * step / steps) + ui_locale::tr(" Mo/s");
+                draw->AddText(font, fontSize, ImVec2(plotMax.x + cyui::dp(3.0f),
+                    std::clamp(y - fontSize * 0.5f, plotMin.y, plotMax.y - fontSize)), axisColour, label.c_str());
             }
         }
         for (int step = 0; step <= 2; ++step) {
-            const auto label = std::to_string(-60 + step * 30) + " s";
+            const auto label = step == 2 ? std::string(pick("maintenant", "now")) : std::to_string(60 - step * 30) + " s";
             const float x = plotMin.x + (plotMax.x - plotMin.x) * step / 2.0f;
             draw->AddText(font, fontSize,
                 ImVec2(std::clamp(x - labelWidth(label) * 0.5f, plotMin.x,
                     std::max(plotMin.x, plotMax.x - labelWidth(label))), plotMax.y + cyui::dp(2.0f)),
-                cyui::palette().textDim, label.c_str());
+                axisColour, label.c_str());
         }
         if (result.hovered) {
             const double secondsAgo = std::clamp(now - result.mouse.x, 0.0, 60.0);
             draw->AddLine(ImVec2(ImGui::GetMousePos().x, plotMin.y),
                 ImVec2(ImGui::GetMousePos().x, plotMax.y), cyui::palette().textDim, cyui::dp(1.0f));
             ImGui::BeginTooltip();
-            ImGui::Text(ui_locale::tr("Il y a %.0f s"), secondsAgo);
+            cyui::textDim(ui_locale::tr("Il y a %.0f s"), secondsAgo);
             for (const auto* value : series) {
                 if (!value) continue;
                 const auto found = histories.find(device.id + "/" + value->id);
@@ -1562,7 +1812,7 @@ struct AppUi::State {
                         closest = &point;
                         distance = std::abs(point.time - result.mouse.x);
                     }
-                if (closest) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(cyui::categorical(seriesIndex(device, *value))),
+                if (closest) cyui::textColoured(cyui::categorical(seriesIndex(device, *value)),
                     "%s : %.1f %s", ui_locale::text(value->label).c_str(), closest->value,
                     ui_locale::text(value->unit).c_str());
             }
@@ -1571,112 +1821,75 @@ struct AppUi::State {
         ImGui::SetCursorScreenPos(ImVec2(start.x, plotMax.y));
         ImGui::Dummy(ImVec2(available, bottomMargin));
     }
-    void chartMetric(const DeviceInfo& device, const MetricInfo& value, const float height)
+    static std::string valueText(const MetricInfo* value, const char* pattern = "%.1f")
     {
-        ImGui::TextUnformatted(ui_locale::text(value.label).c_str());
-        ImGui::SameLine();
-        if (std::isfinite(value.value)) cyui::textColoured(seriesColor(device, value), "%.1f %s", value.value,
-            ui_locale::text(value.unit).c_str());
-        else cyui::textFaint(ui_locale::tr("Indisponible"));
-        chart(device, { &value }, height);
+        if (!value || !std::isfinite(value->value)) return ui_locale::tr("Indisponible");
+        const auto unit = ui_locale::text(value->unit);
+        return format(pattern, value->value) + (unit.empty() ? "" : " " + unit);
     }
-    void resourceDetails(const DeviceInfo& device)
+    // A large value with a smaller detail on the same baseline.
+    static void bigValue(const std::string& value, const ImU32 colour, const std::string& detail, const float factor = 1.5f)
     {
-        cyui::heading(ui_locale::text(device.title).c_str(), 2);
-        if (device.kind == "gpu") {
-            ImGui::SameLine();
-            cyui::alignRight(cyui::dp(250.0f));
-            cyui::textDim("%s", ui_locale::text(device.description).c_str());
-            const auto* temperature = metric(device, "temperature");
-            const auto* usage = metric(device, "usage");
-            if (temperature && std::isfinite(temperature->value))
-                cyui::textDim(ui_locale::french() ? "Température %.1f °C" : "Temperature %.1f °C", temperature->value);
-            else cyui::textFaint(ui_locale::french() ? "Température indisponible" : "Temperature unavailable");
-            ImGui::SameLine(0.0f, cyui::dp(14.0f));
-            if (usage && std::isfinite(usage->value))
-                cyui::textColoured(cyui::palette().success, ui_locale::french()
-                    ? "Utilisation totale %.1f %%" : "Total usage %.1f %%", usage->value);
-            else cyui::textFaint(ui_locale::french() ? "Utilisation indisponible" : "Usage unavailable");
-            ImGui::SameLine();
-            cyui::alignRight(cyui::dp(135.0f));
-            if (cyui::button(ui_locale::french() ? "Processus GPU" : "GPU processes", cyui::Variant::secondary)) {
-                processView = 1;
-                switchPage(false);
-            }
-        } else {
-            cyui::textDim("%s", ui_locale::text(device.description).c_str());
+        const float top = ImGui::GetCursorPosY();
+        float bigSize {};
+        {
+            cyui::ScopedFont font(cyui::boldFont(), factor);
+            bigSize = ImGui::GetFontSize();
+            cyui::textColoured(colour, "%s", value.c_str());
         }
-        cyui::space(5);
-        if (device.kind == "cpu") {
-            ImGui::Checkbox(ui_locale::tr("Afficher les processeurs logiques"), &showCores);
-            if (showCores && !detailGraphCards) {
-                const char* modes[] { ui_locale::tr("Compacte (Windows)"), ui_locale::tr("Détaillée") };
-                int mode = compactCores ? 0 : 1;
-                if (cyui::segmented("##cpuMode", modes, 2, &mode, cyui::dp(340.0f))) compactCores = mode == 0;
+        if (detail.empty()) return;
+        ImGui::SameLine(0.0f, cyui::dp(10.0f));
+        ImGui::SetCursorPosY(top + (bigSize - ImGui::GetFontSize()) * 0.78f);
+        cyui::textDim("%s", detail.c_str());
+    }
+    const char* seriesName(const DeviceInfo& device, const MetricInfo& value) const
+    {
+        if (device.kind == "memory") return value.id == "used" ? pick("Utilisée", "In use") : pick("Engagée", "Committed");
+        if (device.kind == "disk") return value.id == "active" ? pick("Activité", "Active")
+            : value.id == "read" ? pick("Lecture", "Read") : pick("Écriture", "Write");
+        if (device.kind == "network") return value.id == "receive" ? pick("Réception", "Receive") : pick("Envoi", "Send");
+        return "";
+    }
+    std::string deviceDetail(const DeviceInfo& device) const
+    {
+        std::string detail;
+        const auto append = [&detail](const std::string& part) {
+            if (part.empty()) return;
+            detail += (detail.empty() ? "" : "  ·  ") + part;
+        };
+        if (const auto* temperature = metric(device, "temperature"); temperature && std::isfinite(temperature->value))
+            append(format("%.0f °C", temperature->value));
+        if (device.kind == "cpu")
+            if (const auto* clock = metric(device, "telemetry:clock"); clock && std::isfinite(clock->value))
+                append(format("%.0f MHz", clock->value));
+        if (device.kind == "gpu")
+            if (const auto* vram = metric(device, "dedicated"); vram && std::isfinite(vram->value))
+                append(std::isfinite(vram->maximum) && vram->maximum > 0
+                    ? textf("VRAM %.1f / %.0f %s", vram->value, vram->maximum, pick("Go", "GB"))
+                    : textf("VRAM %.1f %s", vram->value, pick("Go", "GB")));
+        if (device.kind == "memory")
+            if (const auto* used = metric(device, "used"); used && std::isfinite(used->value)
+                && std::isfinite(used->maximum) && used->maximum > 0)
+                append(textf(pick("sur %.1f Go · %.0f %%", "of %.1f GB · %.0f %%"), used->maximum,
+                    used->value / used->maximum * 100.0));
+        return detail;
+    }
+    void legend(const DeviceInfo& device, const std::vector<const MetricInfo*>& series)
+    {
+        cyui::ScopedFont font(nullptr, 0.88f);
+        bool first = true;
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        for (const auto* value : series) {
+            if (!value) continue;
+            const auto text = std::string(seriesName(device, *value)) + "  " + valueText(value, "%.1f");
+            const float width = ImGui::CalcTextSize(text.c_str()).x + cyui::dp(13.0f);
+            if (!first) {
+                ImGui::SameLine(0.0f, cyui::dp(14.0f));
+                // Wrap the legend instead of letting it run under the card edge.
+                if (ImGui::GetCursorScreenPos().x + width > right) ImGui::NewLine();
             }
-        }
-        if (detailGraphCards) {
-            std::vector<const MetricInfo*> visible;
-            for (const auto& value : device.metrics) {
-                if (value.id.rfind("core:", 0) == 0 && !showCores) continue;
-                visible.push_back(&value);
-            }
-            if (visible.empty()) return;
-            const float available = ImGui::GetContentRegionAvail().x;
-            const int columns = std::clamp(static_cast<int>(available / cyui::dp(330.0f)), 1,
-                std::min(3, static_cast<int>(visible.size())));
-            if (columns > 0 && ImGui::BeginTable("##detailCards", columns,
-                    ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX)) {
-                for (const auto* value : visible) {
-                    ImGui::TableNextColumn();
-                    const std::string id = "##detail_" + device.id + "/" + value->id;
-                    if (cyui::beginCard(id.c_str(), nullptr, 185.0f)) {
-                        cyui::textDim("%s", ui_locale::text(value->label).c_str());
-                        if (std::isfinite(value->value))
-                            cyui::textColoured(seriesColor(device, *value), "%.1f %s", value->value,
-                                ui_locale::text(value->unit).c_str());
-                        else cyui::textFaint(ui_locale::tr("Indisponible"));
-                        chart(device, {value}, 112.0f);
-                    }
-                    cyui::endCard();
-                }
-                ImGui::EndTable();
-            }
-            return;
-        }
-        cyui::space(6);
-        if (device.kind == "cpu") {
-            if (const auto* total = metric(device, "cpu")) {
-                if (!showCores || !compactCores) chartMetric(device, *total, 165);
-                else cyui::textDim(ui_locale::tr("Utilisation totale : %.1f %%"), total->value);
-            }
-            if (showCores) {
-                std::vector<const MetricInfo*> cores;
-                for (const auto& value : device.metrics) if (value.id.rfind("core:", 0) == 0) cores.push_back(&value);
-                const int columns = compactCores ? 4 : 2;
-                if (ImGui::BeginTable("##cores", columns, ImGuiTableFlags_SizingStretchSame))
-                {
-                    for (const auto* core : cores) {
-                        ImGui::TableNextColumn();
-                        chartMetric(device, *core, compactCores ? 70.0f : 110.0f);
-                    }
-                    ImGui::EndTable();
-                }
-            }
-        } else if (device.kind == "disk") {
-            const std::vector<const MetricInfo*> series { metric(device, "active"), metric(device, "read"), metric(device, "write") };
-            for (const auto* value : series)
-                if (value) { cyui::textColoured(seriesColor(device, *value), "● %s : %.1f %s",
-                    ui_locale::text(value->label).c_str(), value->value,
-                    ui_locale::text(value->unit).c_str()); ImGui::SameLine(); }
-            ImGui::NewLine();
-            chart(device, series, 340.0f);
-        } else {
-            for (const auto& value : device.metrics) {
-                if (value.id == "temperature") continue;
-                chartMetric(device, value, device.kind == "gpu" ? 110.0f : 155.0f);
-                cyui::space(8);
-            }
+            first = false;
+            ui_kit::dotText(seriesColor(device, *value), text.c_str());
         }
     }
     void dashboardCard(const DeviceInfo& device, const bool single, const bool wideRow = false)
@@ -1690,100 +1903,77 @@ struct AppUi::State {
             series.push_back(metric(device, "read"));
             series.push_back(metric(device, "write"));
         } else if (device.kind == "network") series.push_back(metric(device, "send"));
-        const float chartHeight = wideRow ? (compactGraphCards ? 145.0f : 210.0f)
-            : single ? (compactGraphCards ? 155.0f : 225.0f)
-            : (compactGraphCards ? 83.0f : 160.0f);
-        const float cardHeight = wideRow ? (compactGraphCards ? 235.0f : 310.0f)
-            : single ? (compactGraphCards ? 265.0f : 335.0f)
-            : (compactGraphCards ? 191.0f : 260.0f);
+        std::erase(series, nullptr);
+        const float cardHeight = wideRow ? (compactGraphCards ? 230.0f : 300.0f)
+            : single ? (compactGraphCards ? 290.0f : 360.0f)
+            : (compactGraphCards ? 214.0f : 290.0f);
         const std::string id = "##graphCard_" + device.id;
         if (cyui::beginCard(id.c_str(), nullptr, cardHeight)) {
-            cyui::heading(device.kind == "memory" ? ui_locale::tr("Mémoire") : ui_locale::text(device.title).c_str(), 3);
-            const bool memoryInline = device.kind == "memory" && !single && !wideRow;
-            if (memoryInline) {
-                ImGui::SameLine(0.0f, cyui::dp(12.0f));
-                if (std::isfinite(primary->value))
-                    cyui::textColoured(seriesColor(device, *primary), "%.1f %s", primary->value,
-                        ui_locale::text(primary->unit).c_str());
-                else cyui::textFaint(ui_locale::tr("Mesure indisponible"));
+            const std::string title = device.kind == "memory" ? ui_locale::tr("Mémoire") : ui_locale::text(device.title);
+            {
+                cyui::ScopedFont font(cyui::boldFont(), 0.95f);
+                cyui::textDim("%s", title.c_str());
             }
             if (!single || wideRow) {
                 ImGui::SameLine();
-                cyui::alignRight(cyui::dp(28.0f));
+                const float button = ImGui::GetFontSize() + cyui::dp(8.0f);
+                cyui::alignRight(button);
                 if (cyui::iconButton(cyui::icon::newWindow, ui_locale::tr("Ouvrir ce graphique dans une fenêtre séparée"),
-                    false, 0, cyui::dp(26.0f, 24.0f))) {
+                        false, 0, ImVec2(button, ImGui::GetFontSize() + cyui::dp(4.0f)))) {
                     detached[device.id] = true;
                     if (!demoMode) bridge.send("M 1\n");
                 }
             }
-            if (!memoryInline) {
-                cyui::ScopedFont font(cyui::boldFont(), 1.08f);
-                if (std::isfinite(primary->value))
-                    cyui::textColoured(seriesColor(device, *primary), "%.1f %s", primary->value,
-                        ui_locale::text(primary->unit).c_str());
-                else cyui::textFaint(ui_locale::tr("Mesure indisponible"));
-            }
-            {
-                cyui::ScopedFont font(nullptr, 0.88f);
-                if (series.size() > 1) {
-                    for (std::size_t i = 0; i < series.size(); ++i) {
-                        const auto* value = series[i];
-                        if (!value) continue;
-                        if (device.kind == "memory" && i == 0) continue;
-                        const char* shortName = device.kind == "memory" ? (i == 0 ? "RAM" : "Virt.")
-                            : device.kind == "disk" ? (i == 0 ? "Act." : i == 1 ? (ui_locale::french() ? "L" : "R")
-                                : (ui_locale::french() ? "E" : "W"))
-                            : (i == 0 ? "R" : (ui_locale::french() ? "E" : "S"));
-                        if (i > 0 && device.kind != "memory") ImGui::SameLine(0.0f, cyui::dp(8.0f));
-                        if (std::isfinite(value->value))
-                            cyui::textColoured(seriesColor(device, *value),
-                                device.kind == "disk" ? "%s %.0f" : "%s %.1f", shortName, value->value);
-                        else cyui::textFaint("%s —", shortName);
-                    }
-                } else {
-                    std::string detail;
-                    if (const auto* temperature = metric(device, "temperature"); temperature && std::isfinite(temperature->value))
-                        detail = ui_locale::tr("Température ") + format("%.0f", temperature->value) + " °C";
-                    if (const auto* dedicated = metric(device, "dedicated"); dedicated && std::isfinite(dedicated->value))
-                        detail += (detail.empty() ? "" : "  ·  ") + std::string("VRAM ")
-                            + format("%.1f", dedicated->value) + ui_locale::tr(" Go");
-                    if (detail.empty()) detail = ui_locale::tr("Historique des 60 dernières secondes");
-                    cyui::textDim("%s", detail.c_str());
-                }
-            }
-            cyui::space(3.0f);
-            chart(device, series, chartHeight);
+            const bool network = device.kind == "network";
+            bigValue(valueText(primary, device.kind == "disk" ? "%.0f" : "%.1f"), seriesColor(device, *primary),
+                network ? std::string() : deviceDetail(device), 1.45f);
+            if (series.size() > 1) legend(device, series);
+            else if (!wideRow) cyui::textFaint("%s", ui_locale::text(device.description).c_str());
+            cyui::space(4.0f);
+            const float remaining = ImGui::GetContentRegionAvail().y / cyui::dp(1.0f);
+            chart(device, series, std::max(60.0f, remaining - 2.0f));
         }
         cyui::endCard();
     }
     void topProcessCard(const char* id, const char* title, const std::vector<int>& ranking, const int valueKind)
     {
-        if (cyui::beginCard(id, nullptr, 230.0f)) {
-            cyui::heading(title, 3);
+        const auto& palette = cyui::palette();
+        if (cyui::beginCard(id, nullptr, 0.0f)) {
+            {
+                cyui::ScopedFont font(cyui::boldFont(), 0.95f);
+                cyui::textDim("%s", title);
+            }
+            cyui::space(2.0f);
+            const auto valueOf = [this, valueKind](const ProcessInfo& process) {
+                const double value = valueKind == 0 ? process.cpu : valueKind == 2 ? process.gpu
+                    : static_cast<double>(process.workingSet);
+                return std::isfinite(value) ? value : 0.0;
+            };
+            double maximum {};
+            for (const int index : ranking) maximum = std::max(maximum, valueOf(snapshot.processes[index]));
             if (ranking.empty()) cyui::textFaint(ui_locale::tr("Aucun processus mesuré"));
-            else if (ImGui::BeginTable((std::string("##ranking_") + id).c_str(), 2,
-                ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
-                ImGui::TableSetupColumn(ui_locale::tr("Processus"), ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn(ui_locale::tr("Valeur"), ImGuiTableColumnFlags_WidthFixed, cyui::dp(105.0f));
-                for (const int index : ranking) {
-                    const auto& process = snapshot.processes[index];
-                    ImGui::TableNextRow(ImGuiTableRowFlags_None, cyui::dp(27.0f));
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushID(process.id);
-                    if (ImGui::Selectable(process.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns,
-                        ImVec2(0.0f, cyui::dp(25.0f)))) focusProcess(process);
-                    if (ImGui::IsItemHovered()) cyui::tooltip(ui_locale::tr("Afficher ce processus dans la liste"));
-                    ImGui::PopID();
-                    ImGui::TableSetColumnIndex(1);
-                    if (valueKind == 0 && std::isfinite(process.cpu))
-                        cyui::textColoured(heat(process.cpu, false), "%.1f %%", process.cpu);
-                    else if (valueKind == 2 && std::isfinite(process.gpu))
-                        cyui::textColoured(heat(process.gpu, false), "%.1f %%", process.gpu);
-                    else if (valueKind == 1)
-                        cyui::textColoured(cyui::palette().text, ui_locale::tr("%.0f Mo"), process.workingSet / 1048576.0);
-                    else cyui::textFaint("—");
-                }
-                ImGui::EndTable();
+            auto* draw = ImGui::GetWindowDrawList();
+            for (const int index : ranking) {
+                const auto& process = snapshot.processes[index];
+                cyui::ScopedID scoped(process.id);
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                const float width = ImGui::GetContentRegionAvail().x;
+                const float rowHeight = ImGui::GetFontSize() + cyui::dp(16.0f);
+                if (ImGui::Selectable("##rank", false, 0, ImVec2(width, rowHeight))) focusProcess(process);
+                cyui::tooltip(ui_locale::tr("Afficher ce processus dans la liste"));
+                const double value = valueOf(process);
+                const std::string text = valueKind == 1 ? memoryText(value)
+                    : std::isfinite(valueKind == 0 ? process.cpu : process.gpu) ? format("%.1f %%", value) : "—";
+                const float textWidth = ImGui::CalcTextSize(text.c_str()).x;
+                const float y = at.y + cyui::dp(3.0f);
+                cyui::clippedText(draw, ImVec2(at.x + cyui::dp(4.0f), y),
+                    width - textWidth - cyui::dp(16.0f), palette.text, process.name.c_str());
+                draw->AddText(ImVec2(at.x + width - textWidth - cyui::dp(4.0f), y), palette.textDim, text.c_str());
+                const float barY = at.y + rowHeight - cyui::dp(6.0f);
+                const double fraction = maximum > 0.0 ? value / maximum : 0.0;
+                ui_kit::drawMeter(draw, ImVec2(at.x + cyui::dp(4.0f), barY),
+                    ImVec2(at.x + width - cyui::dp(4.0f), barY + cyui::dp(3.0f)), fraction,
+                    valueKind == 1 ? cyui::categorical(3) : valueKind == 2 ? cyui::categorical(11) : palette.accent);
             }
         }
         cyui::endCard();
@@ -1791,15 +1981,15 @@ struct AppUi::State {
     void topProcesses()
     {
         const float available = ImGui::GetContentRegionAvail().x;
-        const int columns = available >= cyui::dp(1060.0f) ? 3 : available >= cyui::dp(690.0f) ? 2 : 1;
-        if (ImGui::BeginTable("##topProcesses", columns,
-            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings)) {
+        const int columns = available >= cyui::dp(900.0f) ? 3 : available >= cyui::dp(600.0f) ? 2 : 1;
+        cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+        if (ImGui::BeginTable("##topProcesses", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
             ImGui::TableNextColumn();
             topProcessCard("##topCpu", ui_locale::tr("Processus · CPU"), topCpu, 0);
             ImGui::TableNextColumn();
             topProcessCard("##topMemory", ui_locale::tr("Processus · mémoire"), topMemory, 1);
             ImGui::TableNextColumn();
-            topProcessCard("##topGpu", ui_locale::french() ? "Processus · GPU" : "Processes · GPU", topGpu, 2);
+            topProcessCard("##topGpu", pick("Processus · GPU", "Processes · GPU"), topGpu, 2);
             ImGui::EndTable();
         }
     }
@@ -1813,46 +2003,49 @@ struct AppUi::State {
             if (device.kind == "gpu" && !gpu) gpu = &device;
         }
         if (!cpu && !gpu) return;
-        const MetricInfo* power = nullptr;
-        const MetricInfo* clock = nullptr;
-        if (gpu) for (const auto& item : gpu->metrics) {
-            if (item.id.rfind("telemetry:", 0) != 0) continue;
-            if (!power && item.unit == "W") power = &item;
-            if (!clock && item.unit == "MHz" && item.label.find("Core") != std::string::npos) clock = &item;
-        }
+        const auto telemetry = [](const DeviceInfo* device, const char* unit, const char* labelPart) -> const MetricInfo* {
+            if (!device) return nullptr;
+            for (const auto& item : device->metrics)
+                if (item.id.rfind("telemetry:", 0) == 0 && item.unit == unit
+                    && (!labelPart || item.label.find(labelPart) != std::string::npos
+                        || item.id.find("clock") != std::string::npos)) return &item;
+            return nullptr;
+        };
         std::vector<Highlight> values;
-        if (cpu) values.push_back({ui_locale::french() ? "Température CPU" : "CPU temperature", metric(*cpu, "temperature")});
-        if (gpu) values.push_back({ui_locale::french() ? "Température GPU" : "GPU temperature", metric(*gpu, "temperature")});
-        if (power) values.push_back({ui_locale::french() ? "Puissance GPU" : "GPU power", power});
-        if (clock) values.push_back({ui_locale::french() ? "Fréquence GPU" : "GPU clock", clock});
+        if (cpu) values.push_back({pick("TEMPÉRATURE CPU", "CPU TEMPERATURE"), metric(*cpu, "temperature")});
+        values.push_back({pick("PUISSANCE CPU", "CPU POWER"), telemetry(cpu, "W", nullptr)});
+        values.push_back({pick("FRÉQUENCE CPU", "CPU CLOCK"), telemetry(cpu, "MHz", nullptr)});
+        if (gpu) values.push_back({pick("TEMPÉRATURE GPU", "GPU TEMPERATURE"), metric(*gpu, "temperature")});
+        values.push_back({pick("PUISSANCE GPU", "GPU POWER"), telemetry(gpu, "W", nullptr)});
+        values.push_back({pick("FRÉQUENCE GPU", "GPU CLOCK"), telemetry(gpu, "MHz", "Core")});
         values.erase(std::remove_if(values.begin(), values.end(), [](const auto& value) {
             return !value.value || !std::isfinite(value.value->value);
         }), values.end());
         if (values.empty()) return;
-        cyui::space(8);
-        cyui::heading(ui_locale::french() ? "Matériel en direct" : "Live hardware", 4);
-        const int columns = std::min(4, static_cast<int>(values.size()));
-        if (ImGui::BeginTable("##hardwareHighlights", columns,
-                ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings)) {
-            for (std::size_t i = 0; i < values.size(); ++i) {
-                ImGui::TableNextColumn();
-                const std::string id = "##hardwareHighlight" + std::to_string(i);
-                if (cyui::beginCard(id.c_str(), nullptr, 86.0f)) {
-                    cyui::textDim("%s", values[i].label);
-                    cyui::textColoured(cyui::palette().text, "%.1f %s",
-                        values[i].value->value, ui_locale::text(values[i].value->unit).c_str());
+        cyui::space(6.0f);
+        cyui::sectionTitle(pick("Capteurs clés", "Key sensors"));
+        cyui::space(4.0f);
+        if (cyui::beginCard("##hardwareHighlights", nullptr, 0.0f)) {
+            const int columns = std::min<int>(static_cast<int>(values.size()),
+                std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cyui::dp(150.0f))));
+            if (ImGui::BeginTable("##highlightGrid", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                for (const auto& item : values) {
+                    ImGui::TableNextColumn();
+                    const bool hot = item.value->unit == "°C" && item.value->value >= 80.0;
+                    ui_kit::statValue(item.label, valueText(item.value, item.value->unit == "MHz" ? "%.0f" : "%.1f").c_str(),
+                        hot ? cyui::palette().warning : cyui::palette().text);
                 }
-                cyui::endCard();
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
         }
+        cyui::endCard();
     }
     void dashboard(const std::string& only, const bool withTopProcesses = false)
     {
         std::vector<const DeviceInfo*> visible;
         for (const char* kind : { "cpu", "memory", "gpu", "disk", "network" }) {
-            if (only.empty() && !graphExtraDevices && std::strcmp(kind, "disk") == 0) continue;
-            if (only.empty() && !graphExtraDevices && std::strcmp(kind, "network") == 0) continue;
+            if (only.empty() && !graphExtraDevices && (std::strcmp(kind, "disk") == 0 || std::strcmp(kind, "network") == 0))
+                continue;
             for (const auto& device : snapshot.devices)
                 if (device.kind == kind && (only.empty() || device.id == only)) visible.push_back(&device);
         }
@@ -1861,22 +2054,33 @@ struct AppUi::State {
             return;
         }
         const float available = ImGui::GetContentRegionAvail().x;
-        const float gap = ImGui::GetStyle().CellPadding.x * 2.0f;
+        const float gap = cyui::dp(10.0f);
         const int automatic = std::max(1, static_cast<int>((available + gap)
-            / (cyui::dp(compactGraphCards ? 240.0f : 380.0f) + gap)));
-        const int safe = std::max(1, static_cast<int>((available + gap) / (cyui::dp(225.0f) + gap)));
+            / (cyui::dp(compactGraphCards ? 230.0f : 360.0f) + gap)));
+        const int safe = std::max(1, static_cast<int>((available + gap) / (cyui::dp(220.0f) + gap)));
         const int requested = only.empty() && !graphRows ? (graphColumnsMode ? graphColumnsMode : automatic) : 1;
-        const int columns = std::clamp(std::min(requested, safe), 1, std::min(5, static_cast<int>(visible.size())));
-        if (ImGui::BeginTable(("##dashboardGrid" + only).c_str(), columns,
-            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings)) {
-            for (const auto* device : visible) {
-                ImGui::TableNextColumn();
-                dashboardCard(*device, !only.empty() || graphRows, only.empty() && graphRows);
+        int columns = std::clamp(std::min(requested, safe), 1, std::min(5, static_cast<int>(visible.size())));
+        if (!graphColumnsMode && columns > 1) {
+            // Balance the rows: five cards on four columns become 3 + 2, not 4 + 1.
+            const int count = static_cast<int>(visible.size());
+            const int rows = (count + columns - 1) / columns;
+            columns = (count + rows - 1) / rows;
+        }
+        {
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+            if (ImGui::BeginTable(("##dashboardGrid" + only).c_str(), columns,
+                    ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                for (const auto* device : visible) {
+                    ImGui::TableNextColumn();
+                    dashboardCard(*device, !only.empty() || graphRows, only.empty() && graphRows);
+                }
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
         }
         if (withTopProcesses) {
-            cyui::space(10.0f);
+            cyui::space(6.0f);
+            cyui::sectionTitle(pick("Processus les plus actifs", "Most active processes"));
+            cyui::space(4.0f);
             topProcesses();
             hardwareHighlights();
         }
@@ -1921,50 +2125,49 @@ struct AppUi::State {
         }
         return ui_locale::tr("Mesure indisponible");
     }
+    void layoutPopup()
+    {
+        if (!ImGui::BeginPopup("##graphDisposition")) return;
+        cyui::sectionTitle(pick("Vue d'ensemble", "Overview"));
+        if (ImGui::MenuItem(pick("Cartes", "Cards"), nullptr, !graphRows)) graphRows = false;
+        if (ImGui::MenuItem(pick("Lignes", "Rows"), nullptr, graphRows)) graphRows = true;
+        ImGui::Separator();
+        if (ImGui::MenuItem(ui_locale::tr("Colonnes automatiques"), nullptr, graphColumnsMode == 0)) graphColumnsMode = 0;
+        for (int columns = 2; columns <= 5; ++columns) {
+            const std::string label = std::to_string(columns) + pick(" colonnes", " columns");
+            if (ImGui::MenuItem(label.c_str(), nullptr, graphColumnsMode == columns)) graphColumnsMode = columns;
+        }
+        ImGui::Separator();
+        ImGui::MenuItem(ui_locale::tr("Cartes compactes"), nullptr, &compactGraphCards);
+        ImGui::MenuItem(ui_locale::tr("Afficher disques et réseau"), nullptr, &graphExtraDevices);
+        cyui::space(4.0f);
+        cyui::sectionTitle(pick("Détails", "Details"));
+        if (ImGui::MenuItem(pick("Graphiques en cartes", "Charts as cards"), nullptr, detailGraphCards)) detailGraphCards = true;
+        if (ImGui::MenuItem(pick("Graphiques en lignes", "Charts as rows"), nullptr, !detailGraphCards)) detailGraphCards = false;
+        ImGui::EndPopup();
+    }
     void performance()
     {
-        cyui::panelHeader("Performance", ui_locale::tr("Mesures en direct · 60 secondes d'historique · survolez les courbes pour lire les valeurs"));
-        cyui::space(5);
-        if (cyui::beginToolbar("##performanceToolbar")) {
-            const char* views[] { ui_locale::tr("Vue graphiques"), ui_locale::tr("Vue détaillée") };
-            int view = graphMode ? 0 : 1;
-            if (cyui::segmented("##performanceView", views, 2, &view, cyui::dp(275.0f))) graphMode = view == 0;
-            ImGui::SameLine();
-            if (graphMode) {
-                const char* layouts[] {ui_locale::french() ? "Cartes" : "Cards",
-                    ui_locale::french() ? "Lignes" : "Rows"};
-                int layout = graphRows ? 1 : 0;
-                if (cyui::segmented("##graphLayout", layouts, 2, &layout, cyui::dp(155.0f)))
-                    graphRows = layout == 1;
-                ImGui::SameLine();
-                if (cyui::button(ui_locale::tr("Disposition"), cyui::Variant::secondary)) ImGui::OpenPopup("##graphDisposition");
-                if (ImGui::BeginPopup("##graphDisposition")) {
-                    if (ImGui::MenuItem(ui_locale::tr("Colonnes automatiques"), nullptr, graphColumnsMode == 0)) graphColumnsMode = 0;
-                    if (ImGui::MenuItem(ui_locale::tr("2 colonnes"), nullptr, graphColumnsMode == 2)) graphColumnsMode = 2;
-                    if (ImGui::MenuItem(ui_locale::tr("3 colonnes"), nullptr, graphColumnsMode == 3)) graphColumnsMode = 3;
-                    if (ImGui::MenuItem(ui_locale::tr("4 colonnes"), nullptr, graphColumnsMode == 4)) graphColumnsMode = 4;
-                    if (ImGui::MenuItem(ui_locale::tr("5 colonnes"), nullptr, graphColumnsMode == 5)) graphColumnsMode = 5;
-                    ImGui::Separator();
-                    ImGui::MenuItem(ui_locale::tr("Cartes compactes"), nullptr, &compactGraphCards);
-                    ImGui::MenuItem(ui_locale::tr("Afficher disques et réseau"), nullptr, &graphExtraDevices);
-                    ImGui::EndPopup();
-                }
-            } else {
-                const char* layouts[] {ui_locale::french() ? "Cartes" : "Cards",
-                    ui_locale::french() ? "Lignes" : "Rows"};
-                int layout = detailGraphCards ? 0 : 1;
-                if (cyui::segmented("##detailLayout", layouts, 2, &layout, cyui::dp(155.0f)))
-                    detailGraphCards = layout == 0;
-            }
-            ImGui::SameLine();
-            cyui::alignRight(cyui::dp(145.0f));
-            if (cyui::button(ui_locale::tr("Fenêtre séparée"), cyui::Variant::secondary)) {
-                detached["all"] = true;
-                if (!demoMode) bridge.send("M 1\n");
-            }
+        const char* views[] {pick("Vue d'ensemble", "Overview"), pick("Détails", "Details")};
+        const float viewsWidth = cyui::dp(230.0f);
+        const float icon = ImGui::GetFrameHeight() + cyui::dp(2.0f);
+        const float actions = viewsWidth + icon * 2.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+        ui_kit::beginPageHeader("Performance", pick("Historique de 60 secondes · survolez une courbe pour lire ses valeurs",
+            "60-second history · hover a chart to read its values"), actions);
+        cyui::alignRight(actions);
+        int view = graphMode ? 0 : 1;
+        if (cyui::segmented("##performanceView", views, 2, &view, viewsWidth)) graphMode = view == 0;
+        ImGui::SameLine();
+        if (cyui::iconButton(cyui::icon::settings, pick("Disposition des graphiques", "Chart layout")))
+            ImGui::OpenPopup("##graphDisposition");
+        layoutPopup();
+        ImGui::SameLine();
+        if (cyui::iconButton(cyui::icon::newWindow, pick("Ouvrir les graphiques dans une fenêtre séparée",
+                "Open the charts in a separate window"))) {
+            detached["all"] = true;
+            if (!demoMode) bridge.send("M 1\n");
         }
-        cyui::endToolbar();
-        cyui::space(6);
+        ui_kit::endPageHeader();
         if (!hasSnapshot || snapshot.devices.empty()) {
             cyui::emptyState(ui_locale::tr("Mesures en attente"), ui_locale::tr("La collecte démarre dans cet onglet."), cyui::icon::refresh);
             return;
@@ -1975,63 +2178,6 @@ struct AppUi::State {
             ImGui::EndChild();
             return;
         }
-        ImGui::BeginChild("##resources", ImVec2(cyui::dp(245.0f), 0), ImGuiChildFlags_Borders);
-        for (const auto& device : snapshot.devices) {
-            if (device.kind != "cpu" && device.kind != "memory" && device.kind != "gpu"
-                && device.kind != "disk" && device.kind != "network") continue;
-            const std::string label = "##resource_" + device.id;
-            const bool active = activeDevice == device.id;
-            if (ImGui::Selectable(label.c_str(), active, 0, ImVec2(0, cyui::dp(47.0f))))
-                activeDevice = device.id;
-            const ImVec2 itemMin = ImGui::GetItemRectMin();
-            const ImVec2 itemMax = ImGui::GetItemRectMax();
-            const auto& colors = cyui::palette();
-            auto* draw = ImGui::GetWindowDrawList();
-            if (active) draw->AddRectFilled(itemMin, ImVec2(itemMin.x + cyui::dp(3.0f), itemMax.y), colors.accent);
-            const float left = itemMin.x + cyui::dp(10.0f);
-            const float sparkWidth = cyui::dp(71.0f);
-            const float sparkLeft = itemMax.x - sparkWidth - cyui::dp(8.0f);
-            const float available = std::max(1.0f, sparkLeft - left - cyui::dp(5.0f));
-            const auto title = ui_locale::text(device.title);
-            cyui::clippedText(draw, ImVec2(left, itemMin.y + cyui::dp(5.0f)), available,
-                active ? colors.accentText : colors.text, title.c_str());
-            const auto summary = resourceSummary(device);
-            const float summarySize = ImGui::GetFontSize() * 0.82f;
-            draw->PushClipRect(ImVec2(left, itemMin.y), ImVec2(itemMax.x - cyui::dp(5.0f), itemMax.y), true);
-            draw->AddText(ImGui::GetFont(), summarySize, ImVec2(left, itemMin.y + cyui::dp(26.0f)),
-                active ? colors.accentText : colors.textDim, summary.c_str());
-            draw->PopClipRect();
-            const auto* primary = metric(device, device.kind == "cpu" ? "cpu" : device.kind == "memory" ? "used"
-                : device.kind == "disk" ? "active" : device.kind == "network" ? "receive" : "usage");
-            if (primary) {
-                const auto found = histories.find(device.id + "/" + primary->id);
-                if (found != histories.end() && found->second.size() > 1) {
-                    const float top = itemMin.y + cyui::dp(8.0f);
-                    const float bottom = itemMax.y - cyui::dp(8.0f);
-                    double maximum = std::isfinite(primary->maximum) && primary->maximum > 0
-                        ? primary->maximum : 1.0;
-                    if (maximum <= 1.0)
-                        for (const auto& point : found->second)
-                            if (std::isfinite(point.value)) maximum = std::max(maximum, point.value * 1.15);
-                    const auto& history = found->second;
-                    ImVec2 previous {};
-                    bool havePrevious = false;
-                    for (std::size_t i = 0; i < history.size(); ++i) {
-                        if (!std::isfinite(history[i].value)) { havePrevious = false; continue; }
-                        const ImVec2 point(sparkLeft + sparkWidth * static_cast<float>(i)
-                                / static_cast<float>(history.size() - 1),
-                            bottom - (bottom - top) * static_cast<float>(std::clamp(history[i].value / maximum, 0.0, 1.0)));
-                        if (havePrevious) draw->AddLine(previous, point, seriesColor(device, *primary), cyui::dp(1.1f));
-                        previous = point;
-                        havePrevious = true;
-                    }
-                }
-            }
-            if (ImGui::IsItemHovered()) cyui::tooltip(ui_locale::text(device.description).c_str());
-        }
-        ImGui::EndChild();
-        ImGui::SameLine();
-        ImGui::BeginChild("##resourceDetails", ImVec2(0, 0), ImGuiChildFlags_None);
         const DeviceInfo* chosen {};
         for (const auto& device : snapshot.devices)
             if (device.id == activeDevice && device.kind != "sensor" && device.kind != "sensor-status") {
@@ -2042,21 +2188,213 @@ struct AppUi::State {
                 || device.kind == "disk" || device.kind == "network") {
                 chosen = &device; activeDevice = device.id; break;
             }
-        if (chosen) resourceDetails(*chosen);
-        ImGui::EndChild();
+        const float height = ImGui::GetContentRegionAvail().y;
+        cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, ImVec2(cyui::dp(6.0f), 0.0f));
+        if (ImGui::BeginTable("##performanceDetail", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn("##resources", ImGuiTableColumnFlags_WidthFixed, cyui::dp(250.0f));
+            ImGui::TableSetupColumn("##details", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            resourceList(height);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::BeginChild("##resourceDetails", ImVec2(0.0f, height), ImGuiChildFlags_None);
+            if (chosen) resourceDetails(*chosen);
+            ImGui::EndChild();
+            ImGui::EndTable();
+        }
     }
+    void resourceList(const float height)
+    {
+        const auto& colors = cyui::palette();
+        if (cyui::beginCard("##resources", nullptr, height / cyui::dp(1.0f) - 1.0f)) {
+            cyui::overline(pick("RESSOURCES", "RESOURCES"), colors.textFaint);
+            cyui::space(4.0f);
+            for (const auto& device : snapshot.devices) {
+                if (device.kind != "cpu" && device.kind != "memory" && device.kind != "gpu"
+                    && device.kind != "disk" && device.kind != "network") continue;
+                const std::string label = "##resource_" + device.id;
+                const bool active = activeDevice == device.id;
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                const float width = ImGui::GetContentRegionAvail().x;
+                const float itemHeight = ImGui::GetFontSize() * 2.2f + cyui::dp(14.0f);
+                auto* draw = ImGui::GetWindowDrawList();
+                if (active) draw->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + itemHeight),
+                    cyui::alpha(colors.accent, 0.14f), ImGui::GetStyle().FrameRounding + cyui::dp(2.0f));
+                if (ImGui::Selectable(label.c_str(), false, 0, ImVec2(width, itemHeight))) activeDevice = device.id;
+                if (ImGui::IsItemHovered()) cyui::tooltip(ui_locale::text(device.description).c_str());
+                const ImVec2 itemMin = ImGui::GetItemRectMin();
+                const ImVec2 itemMax = ImGui::GetItemRectMax();
+                if (active) draw->AddRectFilled(ImVec2(itemMin.x, itemMin.y + cyui::dp(6.0f)),
+                    ImVec2(itemMin.x + cyui::dp(3.0f), itemMax.y - cyui::dp(6.0f)), colors.accent, cyui::dp(2.0f));
+                const float left = itemMin.x + cyui::dp(12.0f);
+                const float sparkWidth = cyui::dp(64.0f);
+                const float sparkLeft = itemMax.x - sparkWidth - cyui::dp(8.0f);
+                const float room = std::max(1.0f, sparkLeft - left - cyui::dp(6.0f));
+                const auto title = ui_locale::text(device.title);
+                {
+                    cyui::ScopedFont font(cyui::boldFont(), 1.0f);
+                    cyui::clippedText(draw, ImVec2(left, itemMin.y + cyui::dp(7.0f)), room, colors.text, title.c_str());
+                }
+                const auto summary = resourceSummary(device);
+                const float summarySize = ImGui::GetFontSize() * 0.84f;
+                draw->PushClipRect(ImVec2(left, itemMin.y), ImVec2(sparkLeft - cyui::dp(4.0f), itemMax.y), true);
+                draw->AddText(ImGui::GetFont(), summarySize,
+                    ImVec2(left, itemMax.y - summarySize - cyui::dp(8.0f)), colors.textDim, summary.c_str());
+                draw->PopClipRect();
+                const auto* primary = metric(device, device.kind == "cpu" ? "cpu" : device.kind == "memory" ? "used"
+                    : device.kind == "disk" ? "active" : device.kind == "network" ? "receive" : "usage");
+                if (!primary) continue;
+                const auto found = histories.find(device.id + "/" + primary->id);
+                if (found == histories.end() || found->second.size() < 2) continue;
+                const float top = itemMin.y + cyui::dp(10.0f);
+                const float bottom = itemMax.y - cyui::dp(10.0f);
+                double maximum = std::isfinite(primary->maximum) && primary->maximum > 0 ? primary->maximum : 1.0;
+                if (maximum <= 1.0)
+                    for (const auto& point : found->second)
+                        if (std::isfinite(point.value)) maximum = std::max(maximum, point.value * 1.15);
+                const auto& history = found->second;
+                const ImU32 colour = seriesColor(device, *primary);
+                ImVec2 previous {};
+                bool havePrevious = false;
+                for (std::size_t i = 0; i < history.size(); ++i) {
+                    if (!std::isfinite(history[i].value)) { havePrevious = false; continue; }
+                    const ImVec2 point(sparkLeft + sparkWidth * static_cast<float>(i) / static_cast<float>(history.size() - 1),
+                        bottom - (bottom - top) * static_cast<float>(std::clamp(history[i].value / maximum, 0.0, 1.0)));
+                    if (havePrevious) {
+                        draw->AddQuadFilled(previous, point, ImVec2(point.x, bottom), ImVec2(previous.x, bottom),
+                            cyui::alpha(colour, 0.12f));
+                        draw->AddLine(previous, point, colour, cyui::dp(1.2f));
+                    }
+                    previous = point;
+                    havePrevious = true;
+                }
+            }
+        }
+        cyui::endCard();
+    }
+    void resourceDetails(const DeviceInfo& device)
+    {
+        ui_kit::beginPageHeader(ui_locale::text(device.title).c_str(), ui_locale::text(device.description).c_str(),
+            device.kind == "gpu" || device.kind == "cpu" ? cyui::dp(300.0f) : 0.0f);
+        if (device.kind == "gpu") {
+            const char* label = pick("Processus GPU", "GPU processes");
+            cyui::alignRight(cyui::buttonWidth(label) + ImGui::GetFontSize() * 1.8f);
+            if (cyui::iconTextButton(cyui::icon::list, label)) {
+                processView = 1;
+                switchPage(false);
+            }
+        } else if (device.kind == "cpu") {
+            const float width = ImGui::GetFrameHeight() * 1.8f + ImGui::CalcTextSize(ui_locale::tr("Afficher les processeurs logiques")).x
+                + cyui::dp(10.0f);
+            cyui::alignRight(width);
+            cyui::toggleSwitch(ui_locale::tr("Afficher les processeurs logiques"), &showCores);
+        }
+        ui_kit::endPageHeader(8.0f);
+        if (device.kind == "cpu" && showCores && !detailGraphCards) {
+            const char* modes[] { ui_locale::tr("Compacte (Windows)"), ui_locale::tr("Détaillée") };
+            int mode = compactCores ? 0 : 1;
+            if (cyui::segmented("##cpuMode", modes, 2, &mode, cyui::dp(320.0f))) compactCores = mode == 0;
+            cyui::space(6.0f);
+        }
+        if (detailGraphCards) {
+            std::vector<const MetricInfo*> visible;
+            for (const auto& value : device.metrics) {
+                if (value.id.rfind("core:", 0) == 0 && !showCores) continue;
+                visible.push_back(&value);
+            }
+            if (visible.empty()) return;
+            const float available = ImGui::GetContentRegionAvail().x;
+            const int columns = std::clamp(static_cast<int>(available / cyui::dp(300.0f)), 1,
+                std::min(3, static_cast<int>(visible.size())));
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+            if (ImGui::BeginTable("##detailCards", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                for (const auto* value : visible) {
+                    ImGui::TableNextColumn();
+                    const std::string id = "##detail_" + device.id + "/" + value->id;
+                    if (cyui::beginCard(id.c_str(), nullptr, 196.0f)) {
+                        cyui::textDim("%s", ui_locale::text(value->label).c_str());
+                        bigValue(valueText(value), seriesColor(device, *value), std::string(), 1.3f);
+                        cyui::space(2.0f);
+                        chart(device, {value}, std::max(60.0f, ImGui::GetContentRegionAvail().y / cyui::dp(1.0f) - 2.0f));
+                    }
+                    cyui::endCard();
+                }
+                ImGui::EndTable();
+            }
+            return;
+        }
+        if (device.kind == "cpu") {
+            if (const auto* total = metric(device, "cpu")) {
+                if (!showCores || !compactCores) chartRow(device, *total, 170.0f);
+                else cyui::textDim(ui_locale::tr("Utilisation totale : %.1f %%"), total->value);
+            }
+            if (showCores) {
+                std::vector<const MetricInfo*> cores;
+                for (const auto& value : device.metrics) if (value.id.rfind("core:", 0) == 0) cores.push_back(&value);
+                const int columns = compactCores ? 4 : 2;
+                cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+                if (ImGui::BeginTable("##cores", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                    for (const auto* core : cores) {
+                        ImGui::TableNextColumn();
+                        chartRow(device, *core, compactCores ? 80.0f : 120.0f);
+                    }
+                    ImGui::EndTable();
+                }
+            }
+        } else if (device.kind == "disk") {
+            const std::vector<const MetricInfo*> series { metric(device, "active"), metric(device, "read"), metric(device, "write") };
+            std::vector<const MetricInfo*> present;
+            for (const auto* value : series) if (value) present.push_back(value);
+            if (cyui::beginCard("##diskChart", nullptr, 0.0f)) {
+                legend(device, present);
+                cyui::space(4.0f);
+                chart(device, present, 340.0f);
+            }
+            cyui::endCard();
+        } else {
+            for (const auto& value : device.metrics) {
+                if (value.id == "temperature") continue;
+                chartRow(device, value, device.kind == "gpu" ? 120.0f : 160.0f);
+            }
+        }
+    }
+    void chartRow(const DeviceInfo& device, const MetricInfo& value, const float height)
+    {
+        const std::string id = "##chartRow_" + device.id + "/" + value.id;
+        if (cyui::beginCard(id.c_str(), nullptr, 0.0f)) {
+            cyui::textDim("%s", ui_locale::text(value.label).c_str());
+            ImGui::SameLine();
+            const auto text = valueText(&value);
+            {
+                cyui::ScopedFont font(cyui::boldFont(), 1.0f);
+                cyui::alignRight(ImGui::CalcTextSize(text.c_str()).x);
+                cyui::textColoured(seriesColor(device, value), "%s", text.c_str());
+            }
+            chart(device, { &value }, height);
+        }
+        cyui::endCard();
+    }
+
+    // ------------------------------------------------------------- utilities
     void permissionControls(const wchar_t* page)
     {
         const bool isElevated = demoMode ? false : elevated();
-        cyui::textDim(isElevated ? (ui_locale::french() ? "Administrateur" : "Administrator")
-            : (ui_locale::french() ? "Droits standard" : "Standard permissions"));
-        if (!isElevated && !demoMode) {
+        const char* state = isElevated ? pick("Administrateur", "Administrator") : pick("Droits standard", "Standard permissions");
+        const char* restart = pick("Redémarrer en administrateur", "Restart as administrator");
+        const bool offerRestart = !isElevated && !demoMode;
+        const float width = ImGui::CalcTextSize(state).x + cyui::dp(14.0f)
+            + (offerRestart ? cyui::buttonWidth(restart) + ImGui::GetStyle().ItemSpacing.x * 2.0f : 0.0f);
+        cyui::alignRight(width);
+        const float lineTop = ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(lineTop + ImGui::GetStyle().FramePadding.y);
+        ui_kit::dotText(isElevated ? cyui::palette().success : cyui::palette().textFaint, state);
+        if (offerRestart) {
             ImGui::SameLine();
-            if (cyui::button(ui_locale::french() ? "Redémarrer en administrateur" : "Restart as administrator",
-                    cyui::Variant::secondary)) {
+            ImGui::SetCursorPosY(lineTop);
+            if (cyui::button(restart, cyui::Variant::secondary)) {
                 if (restartElevated(page)) PostQuitMessage(0);
-                else cyui::notify(ui_locale::french() ? "Élévation annulée ou indisponible."
-                    : "Elevation cancelled or unavailable.", cyui::Tone::warning);
+                else cyui::notify(pick("Élévation annulée ou indisponible.", "Elevation cancelled or unavailable."),
+                    cyui::Tone::warning);
             }
         }
     }
@@ -2093,7 +2431,7 @@ struct AppUi::State {
                 if (!(std::isfinite(process.gpu) && process.gpu > 0.0)
                     && !(std::isfinite(process.gpuLocalBytes) && process.gpuLocalBytes > 0.0)
                     && !(std::isfinite(process.gpuSharedBytes) && process.gpuSharedBytes > 0.0)) continue;
-                rows.push_back({ui_locale::french() ? "Tous les GPU" : "All GPUs", process.name,
+                rows.push_back({pick("Tous les GPU", "All GPUs"), process.name,
                     std::isfinite(process.gpu) ? format("%.1f %%", process.gpu) : "—",
                     std::isfinite(process.gpuLocalBytes)
                         ? format("%.1f MiB", process.gpuLocalBytes / 1048576.0) : "—",
@@ -2102,13 +2440,21 @@ struct AppUi::State {
                     process.id, &process});
             }
         }
-        cyui::searchField("##gpuProcessFind", gpuProcessSearch, sizeof(gpuProcessSearch),
-            ui_locale::french() ? "Nom du processus, PID ou GPU" : "Process name, PID or GPU",
-            cyui::dp(300.0f));
-        ImGui::SameLine();
-        cyui::textDim("%s", ui_locale::french()
-            ? "Cliquer sur un processus pour l'inspecter."
-            : "Click a process to inspect it.");
+        if (cyui::beginToolbar("##gpuToolbar")) {
+            cyui::searchField("##gpuProcessFind", gpuProcessSearch, sizeof(gpuProcessSearch),
+                pick("Nom du processus, PID ou GPU", "Process name, PID or GPU"),
+                std::min(cyui::dp(360.0f), ImGui::GetContentRegionAvail().x * 0.5f));
+            ImGui::SameLine();
+            cyui::textFaint("%s", pick("Double-clic : afficher dans la liste complète · clic droit : actions",
+                "Double-click: show in the full list · right-click: actions"));
+            ImGui::SameLine();
+            const float icon = ImGui::GetFrameHeight() + cyui::dp(2.0f);
+            cyui::alignRight(icon);
+            if (cyui::iconButton(cyui::icon::dockRight, pick("Panneau d'inspection", "Inspector panel"), showProcessInspector))
+                showProcessInspector = !showProcessInspector;
+        }
+        cyui::endToolbar();
+        cyui::space(8.0f);
         const auto query = lower(gpuProcessSearch);
         if (!query.empty()) std::erase_if(rows, [&](const Row& row) {
             return lower(row.name).find(query) == std::string::npos
@@ -2116,9 +2462,8 @@ struct AppUi::State {
                 && std::to_string(row.pid).find(query) == std::string::npos;
         });
         if (rows.empty()) {
-            cyui::emptyState(ui_locale::french() ? "Aucun processus GPU" : "No GPU processes",
-                ui_locale::french() ? "Aucune utilisation GPU mesurée pour le moment."
-                    : "No GPU usage has been measured yet.", cyui::icon::view);
+            cyui::emptyState(pick("Aucun processus GPU", "No GPU processes"),
+                pick("Aucune utilisation GPU mesurée pour le moment.", "No GPU usage has been measured yet."), cyui::icon::view);
             return;
         }
         const auto parseAmount = [](const std::string& text) {
@@ -2145,27 +2490,29 @@ struct AppUi::State {
             row.cpuValue = row.process->cpu;
             row.memoryBytes = static_cast<double>(row.process->workingSet);
         }
-        cyui::space(6);
-        const float available = ImGui::GetContentRegionAvail().y;
-        const bool inspectorVisible = showProcessInspector && available >= cyui::dp(340.0f);
-        const float inspectorHeight = cyui::dp(compactProcesses ? 120.0f : 145.0f);
-        const float tableHeight = inspectorVisible ? available - inspectorHeight - cyui::dp(5.0f) : available;
-        if (ImGui::BeginTable("##gpuProcesses", 9,
-                ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                    ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable |
-                    ImGuiTableFlags_SizingStretchProp,
-                ImVec2(0, tableHeight), std::max(ImGui::GetContentRegionAvail().x, cyui::dp(1160.0f)))) {
+        withInspector("##gpuArea", [&](const ImVec2 size) {
+            const float padY = cyui::dp(5.0f);
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, ImVec2(cyui::dp(8.0f), padY));
+            if (!ImGui::BeginTable("##gpuProcesses", 9,
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_BordersInnerV
+                        | ImGuiTableFlags_NoBordersInBodyUntilResize | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX
+                        | ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable | ImGuiTableFlags_Hideable
+                        | ImGuiTableFlags_SizingFixedFit,
+                    size, size.x >= cyui::dp(860.0f) ? 0.0f : cyui::dp(860.0f))) return;
             ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("GPU", 0, 0.15f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Processus" : "Process", 0, 0.18f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Confiance" : "Trust", 0, 0.11f);
-            ImGui::TableSetupColumn("PID", 0, 0.06f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Moteur" : "Engine",
-                ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending, 0.10f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Mémoire locale" : "Local memory", 0, 0.11f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Mémoire partagée" : "Shared memory", 0, 0.11f);
-            ImGui::TableSetupColumn("CPU", 0, 0.08f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Mémoire" : "Memory", 0, 0.10f);
+            ImGui::TableSetupColumn("GPU", ImGuiTableColumnFlags_WidthFixed, cyui::dp(150.0f));
+            ImGui::TableSetupColumn(pick("Processus", "Process"), ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide);
+            ImGui::TableSetupColumn(pick("Confiance", "Trust"), ImGuiTableColumnFlags_WidthFixed, cyui::dp(78.0f));
+            ImGui::TableSetupColumn("PID", ImGuiTableColumnFlags_WidthFixed, cyui::dp(60.0f));
+            ImGui::TableSetupColumn(pick("Moteur", "Engine"), ImGuiTableColumnFlags_WidthFixed
+                | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(76.0f));
+            ImGui::TableSetupColumn(pick("Mém. locale", "Local mem."), ImGuiTableColumnFlags_WidthFixed
+                | ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(96.0f));
+            ImGui::TableSetupColumn(pick("Mém. partagée", "Shared mem."), ImGuiTableColumnFlags_WidthFixed
+                | ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(104.0f));
+            ImGui::TableSetupColumn("CPU", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(70.0f));
+            ImGui::TableSetupColumn(pick("Mémoire", "Memory"), ImGuiTableColumnFlags_WidthFixed
+                | ImGuiTableColumnFlags_PreferSortDescending, cyui::dp(90.0f));
             ImGui::TableHeadersRow();
             if (auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
                 const int column = specs->Specs[0].ColumnIndex;
@@ -2199,19 +2546,25 @@ struct AppUi::State {
                     return a.gpuKey < b.gpuKey;
                 });
             }
-            const float rowHeight = cyui::dp(compactProcesses ? 23.0f : 30.0f);
+            const auto& palette = cyui::palette();
+            const float rowHeight = cyui::dp(compactProcesses ? 26.0f : 32.0f);
+            auto* draw = ImGui::GetWindowDrawList();
             ImGuiListClipper clipper;
             clipper.Begin(static_cast<int>(rows.size()), rowHeight);
             while (clipper.Step()) for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
                 const auto& row = rows[static_cast<std::size_t>(i)];
                 ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
-                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(row.gpu.c_str());
-                ImGui::TableSetColumnIndex(1);
-                ImGui::PushID(row.gpu.c_str()); ImGui::PushID(row.pid);
+                ImGui::TableSetColumnIndex(0);
+                const ImVec2 cell = ImGui::GetCursorScreenPos();
+                const float top = cell.y - padY;
+                const float textY = top + (rowHeight - ImGui::GetFontSize()) * 0.5f;
                 const bool active = row.process && selected.count(identity(*row.process)) != 0;
-                if (active) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, cyui::palette().selection);
-                if (ImGui::Selectable(row.name.c_str(), active, ImGuiSelectableFlags_SpanAllColumns |
-                    ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0, rowHeight - cyui::dp(2.0f))) && row.process) {
+                if (active) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.selection);
+                cyui::ScopedID gpuId(row.gpu.c_str());
+                cyui::ScopedID pidId(row.pid);
+                if (ImGui::Selectable("##gpuRow", false, ImGuiSelectableFlags_SpanAllColumns
+                        | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                        ImVec2(0.0f, rowHeight - padY * 2.0f)) && row.process) {
                     selected.clear(); selected.insert(identity(*row.process));
                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) focusProcess(*row.process);
                 }
@@ -2220,93 +2573,163 @@ struct AppUi::State {
                     processActions(*row.process);
                     ImGui::EndPopup();
                 }
-                ImGui::PopID(); ImGui::PopID();
+                if (active) draw->AddRectFilled(ImVec2(cell.x - cyui::dp(8.0f), top),
+                    ImVec2(cell.x - cyui::dp(5.0f), top + rowHeight), palette.accent);
+                cyui::clippedText(draw, ImVec2(cell.x, textY), ImGui::GetContentRegionAvail().x, palette.textDim, row.gpu.c_str());
+                ImGui::TableSetColumnIndex(1);
+                {
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    const float iconSize = cyui::dp(compactProcesses ? 16.0f : 20.0f);
+                    const float iconY = top + (rowHeight - iconSize) * 0.5f;
+                    if (auto* icon = row.process ? icons.get(row.process->path) : nullptr)
+                        draw->AddImage(ImTextureRef(icon), ImVec2(at.x, iconY), ImVec2(at.x + iconSize, iconY + iconSize));
+                    else ui_kit::letterAvatar(draw, ImVec2(at.x, iconY), iconSize, row.name.c_str());
+                    cyui::clippedText(draw, ImVec2(at.x + iconSize + cyui::dp(8.0f), textY),
+                        ImGui::GetContentRegionAvail().x - iconSize - cyui::dp(8.0f), palette.text, row.name.c_str());
+                }
                 ImGui::TableSetColumnIndex(2);
                 if (row.process) {
                     const auto index = static_cast<std::size_t>(row.process - snapshot.processes.data());
-                    if (index < trustScores.size()) trustBar(trustScores[index], cyui::dp(18.0f));
-                    else ImGui::TextUnformatted("—");
-                } else ImGui::TextUnformatted("—");
-                ImGui::TableSetColumnIndex(3); ImGui::Text("%d", row.pid);
-                const double gpuPercent = std::strtod(row.engine.c_str(), nullptr);
+                    if (index < trustScores.size()) trustCell(draw, trustScores[index], top, rowHeight, textY);
+                    else cellText(draw, textY, palette.textFaint, "—", false);
+                } else cellText(draw, textY, palette.textFaint, "—", false);
+                ImGui::TableSetColumnIndex(3);
+                cellText(draw, textY, palette.textDim, std::to_string(row.pid));
                 ImGui::TableSetColumnIndex(4);
-                usageBar(gpuPercent, row.engine, false, 18.0f);
-                ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(row.local.c_str());
-                ImGui::TableSetColumnIndex(6); ImGui::TextUnformatted(row.shared.c_str());
+                ui_kit::tintCell(row.engineValue / 100.0);
+                cellText(draw, textY, palette.text, row.engine);
+                ImGui::TableSetColumnIndex(5);
+                cellText(draw, textY, palette.text, memoryText(row.localBytes));
+                ImGui::TableSetColumnIndex(6);
+                cellText(draw, textY, palette.textDim, memoryText(row.sharedBytes));
                 ImGui::TableSetColumnIndex(7);
-                if (row.process) usageBar(row.process->cpu, format("%.1f %%", row.process->cpu), false, 18.0f);
-                else ImGui::TextUnformatted("—");
-                ImGui::TableSetColumnIndex(8);
                 if (row.process) {
-                    const double memoryMb = row.process->workingSet / 1048576.0;
-                    const double memoryPercent = snapshot.memoryTotalGb > 0.0
-                        ? memoryMb / (snapshot.memoryTotalGb * 1024.0) * 100.0 : 0.0;
-                    usageBar(memoryPercent, format("%.0f MB", memoryMb), true, 18.0f);
-                } else ImGui::TextUnformatted("—");
+                    ui_kit::tintCell(row.process->cpu / 100.0);
+                    cellText(draw, textY, palette.text, std::isfinite(row.process->cpu) ? format("%.1f %%", row.process->cpu) : "—");
+                } else cellText(draw, textY, palette.textFaint, "—");
+                ImGui::TableSetColumnIndex(8);
+                cellText(draw, textY, row.process ? palette.text : palette.textFaint,
+                    row.process ? memoryText(row.memoryBytes) : std::string("—"));
             }
             ImGui::EndTable();
+        });
+    }
+    void sensorFallbackTable()
+    {
+        const auto& palette = cyui::palette();
+        const auto query = lower(sensorSearch);
+        cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(8.0f, 5.0f));
+        if (!ImGui::BeginTable("##sensorFallback", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuterH
+                | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+            return;
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn(pick("Capteur", "Sensor"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(pick("Actuel", "Current"), ImGuiTableColumnFlags_WidthFixed, cyui::dp(110.0f));
+        ImGui::TableSetupColumn("Min", ImGuiTableColumnFlags_WidthFixed, cyui::dp(90.0f));
+        ImGui::TableSetupColumn("Max", ImGuiTableColumnFlags_WidthFixed, cyui::dp(90.0f));
+        ImGui::TableHeadersRow();
+        for (const auto& device : snapshot.devices) {
+            const bool groupMatch = query.empty() || lower(device.title).find(query) != std::string::npos;
+            bool groupShown = false;
+            for (const auto& value : device.metrics) {
+                if ((device.kind != "sensor" && value.unit != "°C") || !std::isfinite(value.value)) continue;
+                if (!groupMatch && lower(value.label).find(query) == std::string::npos) continue;
+                const auto reading = liveTemperatures.find(device.id + "/" + value.id);
+                if (reading == liveTemperatures.end()) continue;
+                if (!groupShown) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.bg2);
+                    ImGui::TableSetColumnIndex(0);
+                    cyui::ScopedFont font(cyui::boldFont(), 0.92f);
+                    cyui::textDim("%s", ui_locale::text(device.title).c_str());
+                    groupShown = true;
+                }
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Indent(cyui::dp(12.0f));
+                ImGui::TextUnformatted(ui_locale::text(value.label).c_str());
+                ImGui::Unindent(cyui::dp(12.0f));
+                ImGui::TableSetColumnIndex(1);
+                cyui::textColoured(temperatureColour(reading->second.current, value.unit), "%.1f %s",
+                    reading->second.current, ui_locale::text(value.unit).c_str());
+                ImGui::TableSetColumnIndex(2); cyui::textDim("%.1f", reading->second.minimum);
+                ImGui::TableSetColumnIndex(3); cyui::textDim("%.1f", reading->second.maximum);
+            }
         }
-        if (inspectorVisible) { cyui::space(2); processInspector(); }
+        ImGui::EndTable();
+    }
+    static ImU32 temperatureColour(const double value, const std::string& unit)
+    {
+        const auto& palette = cyui::palette();
+        if (unit != "°C") return palette.text;
+        return value >= 85.0 ? palette.error : value >= 70.0 ? palette.warning : palette.text;
     }
     void temperatures()
     {
-        cyui::heading(ui_locale::french() ? "Températures" : "Temperatures", 2);
-        ImGui::SameLine();
-        cyui::alignRight(cyui::dp(310.0f));
+        ui_kit::beginPageHeader(pick("Températures", "Temperatures"),
+            pick("Capteurs matériels en direct · min et max depuis l'ouverture", "Live hardware sensors · min and max since launch"),
+            cyui::dp(demoMode ? 180.0f : 420.0f));
         permissionControls(L"--temperatures");
-        cyui::space(4);
-        const char* views[] {ui_locale::french() ? "Capteurs" : "Sensors",
-            ui_locale::french() ? "Courbes" : "Charts"};
-        cyui::segmented("##sensorViews", views, 2, &sensorView, cyui::dp(280.0f));
-        if (sensorView == 1) {
-            ImGui::SameLine();
-            ImGui::BeginDisabled(demoMode);
-            if (cyui::button(ui_locale::french() ? "Importer un CSV HWiNFO" : "Import HWiNFO CSV", cyui::Variant::secondary))
-                sensorLog.chooseFile();
-            ImGui::EndDisabled();
-            if (sensorLog.enabled()) {
+        ui_kit::endPageHeader();
+        if (cyui::beginToolbar("##sensorToolbar")) {
+            const char* views[] {pick("Capteurs", "Sensors"), pick("Courbes", "Charts")};
+            cyui::segmented("##sensorViews", views, 2, &sensorView, cyui::dp(220.0f));
+            cyui::toolbarSeparator();
+            if (sensorView == 0) {
+                cyui::searchField("##sensorFind", sensorSearch, sizeof(sensorSearch),
+                    pick("Rechercher un capteur", "Find a sensor"), cyui::dp(260.0f));
                 ImGui::SameLine();
-                if (cyui::button(ui_locale::french() ? "Fermer le CSV" : "Close CSV", cyui::Variant::secondary))
-                    sensorLog.clear();
-                if (ImGui::GetTime() >= nextSensorRefresh) {
-                    sensorLog.refresh(); nextSensorRefresh = ImGui::GetTime() + 1.0;
+                cyui::toggleSwitch(pick("Disponibles uniquement", "Available only"), &sensorAvailableOnly);
+                ImGui::SameLine();
+                const char* reset = pick("Réinitialiser min/max", "Reset min/max");
+                cyui::alignRight(cyui::buttonWidth(reset) + ImGui::GetFontSize() * 1.8f);
+                if (cyui::iconTextButton(cyui::icon::refresh, reset, cyui::Variant::ghost)) {
+                    if (hardwareMonitor) hardwareMonitor->reset_sensor_statistics();
+                    for (auto& [key, reading] : liveTemperatures)
+                        reading.minimum = reading.maximum = reading.current;
+                }
+            } else {
+                {
+                    cyui::ScopedDisabled disabled(demoMode);
+                    if (cyui::iconTextButton(cyui::icon::importFile, pick("Importer un CSV HWiNFO", "Import HWiNFO CSV")))
+                        sensorLog.chooseFile();
+                }
+                if (sensorLog.enabled()) {
+                    ImGui::SameLine();
+                    if (cyui::iconTextButton(cyui::icon::close, pick("Fermer le CSV", "Close CSV"), cyui::Variant::ghost))
+                        sensorLog.clear();
+                    if (ImGui::GetTime() >= nextSensorRefresh) {
+                        sensorLog.refresh(); nextSensorRefresh = ImGui::GetTime() + 1.0;
+                    }
                 }
             }
         }
-        cyui::space(8);
+        cyui::endToolbar();
+        cyui::space(8.0f);
         for (const auto& device : snapshot.devices) if (device.kind == "sensor-status") {
             const bool pawnio = device.description.find("PawnIO") != std::string::npos;
-            if (sensorView == 1) cyui::callout(cyui::Tone::warning, pawnio
-                ? (ui_locale::french()
-                    ? "PawnIO absent ou inaccessible : certains capteurs avancés sont indisponibles. Les mesures natives restent actives."
-                    : "PawnIO missing or inaccessible: some advanced sensors are unavailable. Native measurements remain active.")
-                : (ui_locale::french()
-                    ? "Capteurs avancés indisponibles. Les mesures natives restent actives."
-                    : "Advanced sensors unavailable. Native measurements remain active."));
-            if (pawnio && cyui::button(ui_locale::french() ? "Installer PawnIO (site officiel)"
-                    : "Install PawnIO (official site)", cyui::Variant::secondary))
-                ShellExecuteW(nullptr, L"open", L"https://pawnio.eu/", nullptr, nullptr, SW_SHOWNORMAL);
+            cyui::callout(cyui::Tone::warning, pawnio
+                ? pick("PawnIO absent ou inaccessible : certains capteurs avancés sont indisponibles. Les mesures natives restent actives.",
+                    "PawnIO missing or inaccessible: some advanced sensors are unavailable. Native measurements remain active.")
+                : pick("Capteurs avancés indisponibles. Les mesures natives restent actives.",
+                    "Advanced sensors unavailable. Native measurements remain active."));
             if (pawnio) {
+                if (cyui::iconTextButton(cyui::icon::download, pick("Installer PawnIO (site officiel)", "Install PawnIO (official site)")))
+                    ShellExecuteW(nullptr, L"open", L"https://pawnio.eu/", nullptr, nullptr, SW_SHOWNORMAL);
                 ImGui::SameLine();
-                cyui::textDim("%s", ui_locale::french()
-                    ? "Choisir l'édition officielle signée ; validation Windows possible."
-                    : "Choose the signed Official edition; Windows approval may be required.");
+                cyui::textFaint("%s", pick("Choisir l'édition officielle signée ; validation Windows possible.",
+                    "Choose the signed Official edition; Windows approval may be required."));
             }
+            cyui::space(6.0f);
+            break;
         }
         if (sensorView == 0) {
-            cyui::searchField("##sensorFind", sensorSearch, sizeof(sensorSearch),
-                ui_locale::french() ? "Rechercher un capteur" : "Find a sensor", cyui::dp(260.0f));
-            ImGui::SameLine();
-            ImGui::Checkbox(ui_locale::french() ? "Disponibles uniquement" : "Available only", &sensorAvailableOnly);
-            ImGui::SameLine();
-            if (cyui::button(ui_locale::french() ? "Réinitialiser les statistiques" : "Reset statistics",
-                    cyui::Variant::secondary) && hardwareMonitor)
-                hardwareMonitor->reset_sensor_statistics();
-            cyui::space(5);
             const auto hardware = hardwareMonitor ? hardwareMonitor->snapshot() : nullptr;
-            if (!hardware || hardware->timestamp == cyhwinfo::Timestamp{}) {
-                cyui::textDim("%s", ui_locale::french()
-                    ? "Chargement des capteurs…" : "Loading sensors…");
+            if (!hardwareMonitor) sensorFallbackTable();
+            else if (!hardware || hardware->timestamp == cyhwinfo::Timestamp{}) {
+                cyui::emptyState(pick("Chargement des capteurs…", "Loading sensors…"),
+                    pick("La détection matérielle peut prendre quelques secondes.", "Hardware discovery can take a few seconds."),
+                    cyui::icon::refresh);
             } else if (sensorSearch[0] || sensorAvailableOnly) {
                 auto filtered = *hardware;
                 const auto query = lower(sensorSearch);
@@ -2324,29 +2747,38 @@ struct AppUi::State {
             } else hardwareDashboard.draw_panel(cyhwinfo::ui::Page::sensors, *hardware);
             return;
         }
+        temperatureCharts();
+    }
+    void temperatureCharts()
+    {
+        const auto& palette = cyui::palette();
         const DeviceInfo* selectedDevice {};
         const MetricInfo* selectedMetric {};
-        const auto availableWidth = ImGui::GetContentRegionAvail().x;
-        const auto tableWidth = std::min(availableWidth * 0.57f,
-            std::max(availableWidth * 0.48f, cyui::dp(400.0f)));
         bool selectedStillAvailable = false;
         for (const auto& device : snapshot.devices)
             for (const auto& value : device.metrics)
                 if ((device.kind == "sensor" || value.unit == "°C") && std::isfinite(value.value)
                     && activeSensorKey == device.id + "/" + value.id) selectedStillAvailable = true;
         if (!selectedStillAvailable) activeSensorKey.clear();
-        if (ImGui::BeginTable("##temperatureLayout", 2, ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("##sensors", ImGuiTableColumnFlags_WidthFixed, tableWidth);
-            ImGui::TableSetupColumn("##sensorDetail", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableNextColumn();
-            if (ImGui::BeginTable("##liveTemperatures", 4,
-                    ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
-                    ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+        const float height = ImGui::GetContentRegionAvail().y;
+        const float availableWidth = ImGui::GetContentRegionAvail().x;
+        const float listWidth = std::clamp(availableWidth * 0.45f, cyui::dp(340.0f), cyui::dp(560.0f));
+        cyui::ScopedVar cellPadding(ImGuiStyleVar_CellPadding, ImVec2(cyui::dp(5.0f), 0.0f));
+        if (!ImGui::BeginTable("##temperatureLayout", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings))
+            return;
+        ImGui::TableSetupColumn("##sensors", ImGuiTableColumnFlags_WidthFixed, listWidth);
+        ImGui::TableSetupColumn("##sensorDetail", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        {
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(8.0f, 5.0f));
+            if (ImGui::BeginTable("##liveTemperatures", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuterH
+                    | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit, ImVec2(0.0f, height))) {
                 ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn(ui_locale::french() ? "Capteur" : "Sensor", 0, 0.48f);
-                ImGui::TableSetupColumn(ui_locale::french() ? "Actuel" : "Current", 0, 0.18f);
-                ImGui::TableSetupColumn(ui_locale::french() ? "Min" : "Min", 0, 0.17f);
-                ImGui::TableSetupColumn(ui_locale::french() ? "Max" : "Max", 0, 0.17f);
+                ImGui::TableSetupColumn(pick("Capteur", "Sensor"), ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn(pick("Actuel", "Current"), ImGuiTableColumnFlags_WidthFixed, cyui::dp(84.0f));
+                ImGui::TableSetupColumn("Min", ImGuiTableColumnFlags_WidthFixed, cyui::dp(56.0f));
+                ImGui::TableSetupColumn("Max", ImGuiTableColumnFlags_WidthFixed, cyui::dp(56.0f));
                 ImGui::TableHeadersRow();
                 for (const auto& device : snapshot.devices) {
                     bool groupShown = false;
@@ -2358,118 +2790,168 @@ struct AppUi::State {
                         if (activeSensorKey.empty()) activeSensorKey = key;
                         if (key == activeSensorKey) { selectedDevice = &device; selectedMetric = &value; }
                         if (!groupShown) {
-                            ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                            ImGui::TextUnformatted(ui_locale::text(device.title).c_str());
+                            ImGui::TableNextRow();
+                            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.bg2);
+                            ImGui::TableSetColumnIndex(0);
+                            cyui::ScopedFont font(cyui::boldFont(), 0.92f);
+                            cyui::textDim("%s", ui_locale::text(device.title).c_str());
                             groupShown = true;
                         }
-                        ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                        if (ImGui::Selectable((ui_locale::text(value.label) + "##" + key).c_str(),
-                                activeSensorKey == key, ImGuiSelectableFlags_SpanAllColumns))
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        const bool active = activeSensorKey == key;
+                        if (active) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.selection);
+                        ImGui::Indent(cyui::dp(12.0f));
+                        if (ImGui::Selectable((ui_locale::text(value.label) + "##" + key).c_str(), false,
+                                ImGuiSelectableFlags_SpanAllColumns))
                             activeSensorKey = key;
-                        ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f %s", reading->second.current, value.unit.c_str());
-                        ImGui::TableSetColumnIndex(2); ImGui::Text("%.1f", reading->second.minimum);
-                        ImGui::TableSetColumnIndex(3); ImGui::Text("%.1f", reading->second.maximum);
+                        ImGui::Unindent(cyui::dp(12.0f));
+                        ImGui::TableSetColumnIndex(1);
+                        cyui::textColoured(temperatureColour(reading->second.current, value.unit), "%.1f %s",
+                            reading->second.current, ui_locale::text(value.unit).c_str());
+                        ImGui::TableSetColumnIndex(2); cyui::textDim("%.1f", reading->second.minimum);
+                        ImGui::TableSetColumnIndex(3); cyui::textDim("%.1f", reading->second.maximum);
                     }
                 }
                 if (sensorLog.enabled()) {
-                    ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted("HWiNFO CSV");
+                    ImGui::TableNextRow();
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, palette.bg2);
+                    ImGui::TableSetColumnIndex(0);
+                    cyui::textDim("HWiNFO CSV");
                     for (const auto& reading : sensorLog.readings()) {
                         ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
+                        ImGui::Indent(cyui::dp(12.0f));
                         ImGui::TextUnformatted(reading.name.c_str());
-                        ImGui::TableSetColumnIndex(1); ImGui::Text("%.1f °C", reading.current);
-                        ImGui::TableSetColumnIndex(2); ImGui::Text("%.1f", reading.minimum);
-                        ImGui::TableSetColumnIndex(3); ImGui::Text("%.1f", reading.maximum);
+                        ImGui::Unindent(cyui::dp(12.0f));
+                        ImGui::TableSetColumnIndex(1);
+                        cyui::textColoured(temperatureColour(reading.current, "°C"), "%.1f °C", reading.current);
+                        ImGui::TableSetColumnIndex(2); cyui::textDim("%.1f", reading.minimum);
+                        ImGui::TableSetColumnIndex(3); cyui::textDim("%.1f", reading.maximum);
                     }
                 }
                 ImGui::EndTable();
             }
-            ImGui::TableNextColumn();
+        }
+        ImGui::TableSetColumnIndex(1);
+        if (cyui::beginCard("##sensorDetailCard", nullptr, height / cyui::dp(1.0f) - 1.0f)) {
             if (selectedDevice && selectedMetric) {
-                cyui::heading(ui_locale::text(selectedMetric->label).c_str(), 3);
-                cyui::textDim("%s", ui_locale::text(selectedDevice->title).c_str());
                 const auto& reading = liveTemperatures.at(activeSensorKey);
-                cyui::textColoured(cyui::palette().warning, "%.1f %s", reading.current, reading.unit.c_str());
-                cyui::textDim("Min %.1f %s   ·   Max %.1f %s", reading.minimum, reading.unit.c_str(),
-                    reading.maximum, reading.unit.c_str());
-                cyui::space(8);
-                chart(*selectedDevice, {selectedMetric}, 255.0f);
-                cyui::space(12);
-                cyui::heading(ui_locale::french() ? "Autres mesures" : "Related readings", 4);
-                if (ImGui::BeginTable("##relatedSensors", 2,
-                        ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-                    ImGui::TableSetupColumn("Name", 0, 0.7f);
-                    ImGui::TableSetupColumn("Value", 0, 0.3f);
-                    for (const auto& value : selectedDevice->metrics) {
-                        if (value.id == selectedMetric->id || !std::isfinite(value.value)) continue;
-                        ImGui::TableNextRow(); ImGui::TableNextColumn();
-                        ImGui::TextUnformatted(ui_locale::text(value.label).c_str());
-                        ImGui::TableNextColumn(); ImGui::Text("%.1f %s", value.value, value.unit.c_str());
-                    }
+                cyui::textDim("%s", ui_locale::text(selectedDevice->title).c_str());
+                cyui::heading(ui_locale::text(selectedMetric->label).c_str(), 2);
+                cyui::space(4.0f);
+                const auto unit = ui_locale::text(reading.unit);
+                if (ImGui::BeginTable("##sensorStats", 3, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                    ImGui::TableNextColumn();
+                    ui_kit::statValue(pick("ACTUEL", "CURRENT"), textf("%.1f %s", reading.current, unit.c_str()).c_str(),
+                        temperatureColour(reading.current, reading.unit) == palette.text ? palette.accent
+                            : temperatureColour(reading.current, reading.unit));
+                    ImGui::TableNextColumn();
+                    ui_kit::statValue("MIN", textf("%.1f %s", reading.minimum, unit.c_str()).c_str(), palette.text);
+                    ImGui::TableNextColumn();
+                    ui_kit::statValue("MAX", textf("%.1f %s", reading.maximum, unit.c_str()).c_str(), palette.text);
                     ImGui::EndTable();
                 }
+                cyui::space(8.0f);
+                chart(*selectedDevice, {selectedMetric}, 240.0f);
+                cyui::divider(8.0f);
+                cyui::sectionTitle(pick("Autres mesures du composant", "Other readings of this device"));
+                cyui::space(2.0f);
+                if (cyui::beginProperties("##relatedSensors", 0.0f)) {
+                    for (const auto& value : selectedDevice->metrics) {
+                        if (value.id == selectedMetric->id || !std::isfinite(value.value)) continue;
+                        cyui::property(ui_locale::text(value.label).c_str());
+                        ImGui::Text("%.1f %s", value.value, ui_locale::text(value.unit).c_str());
+                    }
+                    cyui::endProperties();
+                }
             } else {
-                cyui::emptyState(ui_locale::french() ? "Capteurs en attente" : "Waiting for sensors",
-                    ui_locale::french() ? "La détection matérielle démarre avec cette page."
-                        : "Hardware discovery starts with this page.", cyui::icon::refresh);
+                cyui::emptyState(pick("Capteurs en attente", "Waiting for sensors"),
+                    pick("La détection matérielle démarre avec cette page.", "Hardware discovery starts with this page."),
+                    cyui::icon::refresh);
             }
-            if (!sensorLog.error().empty()) cyui::textDim("%s", sensorLog.error().c_str());
-            ImGui::EndTable();
+            if (!sensorLog.error().empty()) cyui::callout(cyui::Tone::warning, sensorLog.error().c_str());
         }
+        cyui::endCard();
+        ImGui::EndTable();
     }
     void systemInfo()
     {
-        cyui::panelHeader(ui_locale::french() ? "Informations système" : "System information",
-            ui_locale::french() ? "Résumé matériel et version de Windows" : "Hardware overview and Windows version");
+        ui_kit::beginPageHeader(pick("Système", "System"),
+            pick("Windows, carte mère et inventaire matériel", "Windows, motherboard and hardware inventory"),
+            cyui::dp(demoMode ? 180.0f : 420.0f));
         permissionControls(L"--system-info");
-        cyui::space(10);
-        const auto unknown = ui_locale::french() ? "Indisponible" : "Unavailable";
-        const auto field = [&](const char* label, const std::string& value) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn(); cyui::textDim("%s", label);
-            ImGui::TableNextColumn(); ImGui::TextUnformatted(value.empty() ? unknown : value.c_str());
-        };
+        ui_kit::endPageHeader();
+        const auto unknown = pick("Indisponible", "Unavailable");
         const auto reg = [&](const wchar_t* key, const wchar_t* name) {
             return demoMode ? std::string() : registryValue(HKEY_LOCAL_MACHINE, key, name);
         };
-        if (ImGui::BeginTable("##systemInfo", 2,
-                ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn(ui_locale::french() ? "Élément" : "Item", 0, 0.25f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Valeur" : "Value", 0, 0.75f);
-            ImGui::TableHeadersRow();
-            field(ui_locale::french() ? "Système" : "OS", demoMode ? "Windows Demo Edition" :
-                reg(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName"));
-            field(ui_locale::french() ? "Version" : "Version", demoMode ? "Demo 1" :
-                reg(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"DisplayVersion"));
-            field(ui_locale::french() ? "Carte mère" : "Motherboard", demoMode ? "Demo Board X1" :
-                reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BaseBoardManufacturer") + " " +
-                reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BaseBoardProduct"));
-            field("BIOS", demoMode ? "Demo BIOS" :
-                reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BIOSVersion"));
-            field(ui_locale::french() ? "Date du BIOS" : "BIOS date", demoMode ? "2025-01-01" :
-                reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BIOSReleaseDate"));
-            field(ui_locale::french() ? "Architecture" : "Architecture", "x64");
-            field(ui_locale::french() ? "Processeurs logiques" : "Logical processors",
-                demoMode ? "8" : std::to_string(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)));
-            for (const auto& device : snapshot.devices) {
-                if (device.kind == "cpu" || device.kind == "gpu" || device.kind == "disk")
-                    field(device.kind == "cpu" ? "CPU" : device.kind == "gpu" ? "GPU" :
-                        (ui_locale::french() ? "Disque" : "Disk"), ui_locale::text(device.description));
-                if (device.kind == "gpu") {
-                    const auto* vram = metric(device, "dedicated");
-                    if (vram && std::isfinite(vram->maximum))
-                        field("VRAM", format("%.1f", vram->maximum) +
-                            (ui_locale::french() ? " Go" : " GB"));
-                }
+        const auto field = [&](const char* label, const std::string& value) {
+            cyui::property(label);
+            if (value.empty() || value == " ") cyui::textFaint("%s", unknown);
+            else {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextUnformatted(value.c_str());
+                ImGui::PopTextWrapPos();
             }
-            field("RAM", snapshot.memoryTotalGb > 0
-                ? format("%.1f", snapshot.memoryTotalGb) + (ui_locale::french() ? " Go" : " GB") : "");
-            ImGui::EndTable();
-        }
-        cyui::space(10);
-        cyui::heading(ui_locale::french() ? "Matériel détaillé" : "Detailed hardware", 3);
+        };
         if (!demoMode && !inventory) inventory = std::make_unique<HardwareInventory>();
         if (inventory) inventory->poll();
+        ImGui::BeginChild("##systemScroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
+        const float available = ImGui::GetContentRegionAvail().x;
+        const int columns = available >= cyui::dp(980.0f) ? 3 : available >= cyui::dp(640.0f) ? 2 : 1;
+        {
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+            if (ImGui::BeginTable("##systemCards", columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                ImGui::TableNextColumn();
+                if (cyui::beginCard("##windowsCard", "Windows", 0.0f)) {
+                    if (cyui::beginProperties("##windowsProperties", 120.0f)) {
+                        field(pick("Système", "OS"), demoMode ? "Windows Demo Edition"
+                            : reg(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName"));
+                        field("Version", demoMode ? "Demo 1"
+                            : reg(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"DisplayVersion"));
+                        field("Architecture", "x64");
+                        field(pick("Processeurs logiques", "Logical processors"),
+                            demoMode ? "8" : std::to_string(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)));
+                        cyui::endProperties();
+                    }
+                }
+                cyui::endCard();
+                ImGui::TableNextColumn();
+                if (cyui::beginCard("##boardCard", pick("Carte mère", "Motherboard"), 0.0f)) {
+                    if (cyui::beginProperties("##boardProperties", 120.0f)) {
+                        field(pick("Modèle", "Model"), demoMode ? "Demo Board X1"
+                            : reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BaseBoardManufacturer") + " "
+                              + reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BaseBoardProduct"));
+                        field("BIOS", demoMode ? "Demo BIOS" : reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BIOSVersion"));
+                        field(pick("Date du BIOS", "BIOS date"), demoMode ? "2025-01-01"
+                            : reg(L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"BIOSReleaseDate"));
+                        cyui::endProperties();
+                    }
+                }
+                cyui::endCard();
+                ImGui::TableNextColumn();
+                if (cyui::beginCard("##componentsCard", pick("Composants", "Components"), 0.0f)) {
+                    if (cyui::beginProperties("##componentProperties", 120.0f)) {
+                        for (const auto& device : snapshot.devices) {
+                            if (device.kind == "cpu" || device.kind == "gpu" || device.kind == "disk")
+                                field(device.kind == "cpu" ? "CPU" : device.kind == "gpu" ? "GPU" : pick("Disque", "Disk"),
+                                    ui_locale::text(device.description));
+                            if (device.kind == "gpu")
+                                if (const auto* vram = metric(device, "dedicated"); vram && std::isfinite(vram->maximum))
+                                    field("VRAM", format("%.1f", vram->maximum) + pick(" Go", " GB"));
+                        }
+                        field("RAM", snapshot.memoryTotalGb > 0
+                            ? format("%.1f", snapshot.memoryTotalGb) + pick(" Go", " GB") : std::string());
+                        cyui::endProperties();
+                    }
+                }
+                cyui::endCard();
+                ImGui::EndTable();
+            }
+        }
+        cyui::space(8.0f);
+        cyui::sectionTitle(pick("Matériel détaillé", "Detailed hardware"));
+        cyui::space(4.0f);
         const std::vector<HardwareField> demoFields {
             {"CPU 0", "Model", "Demo 8-Core Processor"},
             {"CPU 0", "Physical cores", "8"}, {"CPU 0", "Logical cores", "16"},
@@ -2482,33 +2964,45 @@ struct AppUi::State {
             {"GPU 0", "Memory bus", "256 bits"},
             {"GPU 0", "Power limit", "220.0 W"}
         };
-        const auto& fields = demoMode ? demoFields : inventory->fields();
-        if (!demoMode && !inventory->ready()) cyui::textDim(ui_locale::french()
-            ? "Lecture de l'inventaire matériel…" : "Reading hardware inventory…");
-        else if (ImGui::BeginTable("##hardwareInventory", 3,
-                ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn(ui_locale::french() ? "Groupe" : "Group", 0, 0.18f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Mesure" : "Metric", 0, 0.30f);
-            ImGui::TableSetupColumn(ui_locale::french() ? "Valeur" : "Value", 0, 0.52f);
-            ImGui::TableHeadersRow();
-            for (const auto& item : fields) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn(); cyui::textDim("%s", item.group.c_str());
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(item.label.c_str());
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(item.value.c_str());
+        if (!demoMode && (!inventory || !inventory->ready())) {
+            cyui::spinner("##inventorySpinner");
+            ImGui::SameLine();
+            cyui::textDim("%s", pick("Lecture de l'inventaire matériel…", "Reading hardware inventory…"));
+        } else {
+            const auto& fields = demoMode ? demoFields : inventory->fields();
+            std::vector<std::string> groups;
+            for (const auto& item : fields)
+                if (std::find(groups.begin(), groups.end(), item.group) == groups.end()) groups.push_back(item.group);
+            cyui::ScopedVar padding(ImGuiStyleVar_CellPadding, cyui::dp(5.0f, 5.0f));
+            if (!groups.empty() && ImGui::BeginTable("##inventoryCards", columns,
+                    ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                for (const auto& group : groups) {
+                    ImGui::TableNextColumn();
+                    const std::string id = "##inventory_" + group;
+                    if (cyui::beginCard(id.c_str(), group.c_str(), 0.0f)) {
+                        if (cyui::beginProperties((id + "_properties").c_str(), 130.0f)) {
+                            for (const auto& item : fields) if (item.group == group) field(item.label.c_str(), item.value);
+                            cyui::endProperties();
+                        }
+                    }
+                    cyui::endCard();
+                }
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
         }
+        ImGui::EndChild();
     }
     void dialogs()
     {
-        if (cyui::beginModal(ui_locale::tr("Arrêter les tâches ?###stopModal"), &stopModal, 430.0f)) {
+        if (cyui::beginModal(ui_locale::tr("Arrêter les tâches ?###stopModal"), &stopModal, 460.0f)) {
             cyui::callout(cyui::Tone::warning, ui_locale::tr("Les modifications non enregistrées peuvent être perdues."));
             cyui::space(8);
             cyui::textDim(ui_locale::tr("%zu processus sélectionné(s)"), pendingStop.size());
+            cyui::space(2);
             for (std::size_t i = 0; i < std::min<std::size_t>(8, pendingStop.size()); ++i)
                 if (const auto* process = find(pendingStop[i])) ImGui::BulletText("%s · PID %d", process->name.c_str(), process->id);
             if (pendingStop.size() > 8) cyui::textFaint(ui_locale::tr("... et %zu autres"), pendingStop.size() - 8);
+            cyui::space(6);
             const int action = cyui::modalButtons(ui_locale::tr("Arrêter"), ui_locale::tr("Annuler"), true);
             if (action == 1) {
                 for (const auto& key : pendingStop)
@@ -2521,11 +3015,18 @@ struct AppUi::State {
         if (detailsOpen) {
             ImGui::SetNextWindowSize(cyui::dp(780.0f, 580.0f), ImGuiCond_FirstUseEver);
             if (ImGui::Begin(ui_locale::tr("Informations avancées###advanced"), &detailsOpen)) {
-                if (cyui::button(ui_locale::tr("Copier tout"), cyui::Variant::secondary)) ImGui::SetClipboardText(detailText.c_str());
-                ImGui::Separator();
-                ImGui::BeginChild("##report");
-                ImGui::TextUnformatted(detailText.c_str());
-                ImGui::EndChild();
+                if (cyui::iconTextButton(cyui::icon::copy, ui_locale::tr("Copier tout"), cyui::Variant::secondary))
+                    ImGui::SetClipboardText(detailText.c_str());
+                cyui::divider(4.0f);
+                {
+                    cyui::ScopedColor ground(ImGuiCol_ChildBg, cyui::palette().bg0);
+                    cyui::ScopedVar padding(ImGuiStyleVar_WindowPadding, cyui::dp(10.0f, 8.0f));
+                    ImGui::BeginChild("##report", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding,
+                        ImGuiWindowFlags_HorizontalScrollbar);
+                    cyui::ScopedFont mono(cyui::monoFont(), 0.95f);
+                    ImGui::TextUnformatted(detailText.c_str());
+                    ImGui::EndChild();
+                }
             }
             ImGui::End();
         }
@@ -2566,6 +3067,16 @@ AppUi::AppUi(ID3D11Device* device, const bool demoMode, const bool performanceAt
     : state_(new State(device, demoMode, performanceAtStart, assistantAtStart, mcpLocalPort,
         utilityAtStart, performanceDetailsAtStart)) {}
 AppUi::~AppUi() { delete state_; }
+void AppUi::idle()
+{
+    auto& state = *state_;
+    state.receive();
+    state.uiBridge->drain([&state](const std::string& operation, const Json& args, bool unrestricted) {
+        if (!unrestricted && (!state.assistantPane || !state.assistantPane->allows(operation)))
+            throw Error("AccessDenied", "UI tool permission was revoked");
+        return state.applyUiCommand(operation, args);
+    });
+}
 void AppUi::frame()
 {
     auto& state = *state_;
@@ -2588,15 +3099,22 @@ void AppUi::frame()
             throw Error("AccessDenied", "UI tool permission was revoked");
         return state.applyUiCommand(operation, args);
     });
-    state.topBar();
     state.statusBar();
+    state.sidebar();
     const auto* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     ImGui::SetNextWindowViewport(viewport->ID);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
-    if (ImGui::Begin("##main", nullptr, flags)) {
+        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking
+        | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    bool shown {};
+    {
+        cyui::ScopedVar padding(ImGuiStyleVar_WindowPadding, cyui::dp(18.0f, 14.0f));
+        padding.push(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        shown = ImGui::Begin("##main", nullptr, flags);
+    }
+    if (shown) {
         if (state.assistantPage) state.assistant();
         else if (state.performancePage) state.performance();
         else if (state.consolePage) {

@@ -266,7 +266,9 @@ bool TaskService::start()
                 std::lock_guard lock(mutex_);
                 if (received) { snapshot_ = std::make_shared<SystemSnapshot>(std::move(next)); error_.clear(); }
                 for (auto& reply : replies) replies_.emplace(reply.requestId, std::move(reply));
-                if (!error.empty()) error_ = std::move(error);
+                // A fresh snapshot proves the collector is alive: a transient
+                // error reported alongside it must not block every reader.
+                if (!error.empty() && !received) error_ = std::move(error);
                 changed_.notify_all();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
@@ -332,8 +334,9 @@ BridgeReply TaskService::request(char kind, const ProcessInfo& p, const CallCont
         + " " + std::to_string(p.created) + "\n");
     std::unique_lock lock(mutex_);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (replies_.find(id) == replies_.end() && error_.empty()
-        && std::chrono::steady_clock::now() < deadline) {
+    // Wait for this request's own reply: a collector error seen meanwhile does
+    // not mean the command failed (a stop may already have been carried out).
+    while (replies_.find(id) == replies_.end() && std::chrono::steady_clock::now() < deadline) {
         context.cancellation.check();
         changed_.wait_for(lock, std::chrono::milliseconds(50));
     }

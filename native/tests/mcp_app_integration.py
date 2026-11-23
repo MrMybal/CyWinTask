@@ -81,7 +81,16 @@ with tempfile.TemporaryDirectory(prefix='cywintask-mcp-test-') as directory:
     config_path = pathlib.Path(directory) / 'mcp-access.json'
     gui, url = launch(config_path)
     try:
-        assert not config_path.exists(), 'Missing profile should use Free without a file'
+        assert not config_path.exists(), 'Missing profile should not create a file'
+        assert 'process_count' in value(rpc(url, 'system.summary'))
+        denied = rpc(url, 'process.terminate', {'pid': 4, 'created': 1, 'confirm': True})['result']
+        assert denied.get('isError', False), 'Default GUI profile allowed an uncontrolled stop'
+        print('PASS real GUI default: Local controlled, tokenless read, stop denied')
+    finally:
+        gui.terminate()
+        gui.wait(timeout=5)
+    gui, url = launch(config_path, profile='free')
+    try:
         summary = value(rpc(url, 'system.summary'))
         assert 'process_count' in summary
         current = value(rpc(url, 'ui.state'))

@@ -165,7 +165,18 @@ def start_http(profile=None, token=None):
     assert line.startswith('MCP listening at http://127.0.0.1:'), line[:120]
     return process, line.removeprefix('MCP listening at ').strip(), env
 
-server, url, env = start_http()
+server, url, _ = start_http()
+try:
+    default_rights = result(http_call(url, call(19, 'permissions.list', {})))
+    assert not all(item['allowed'] for item in default_rights['items']), 'Default serve profile is not controlled'
+    assert http_call(url, call(18, 'process.terminate',
+        {'pid': 4, 'created': 1, 'confirm': True}))['result']['isError']
+    print('Default HTTP MCP profile is Local controlled.')
+finally:
+    server.terminate()
+    server.wait(timeout=5)
+
+server, url, env = start_http('free')
 try:
     assert 'result' in http_call(url, {'jsonrpc': '2.0', 'id': 20,
         'method': 'server/discover', 'params': {}})

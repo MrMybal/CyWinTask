@@ -8,6 +8,8 @@ public:
                    bool performanceDetailsAtStart = false);
     ~AppUi();
     void frame();
+    // While the window is minimised: keep collecting and answering UI tool calls.
+    void idle();
 private:
     struct State;
     State* state_;

@@ -33,7 +33,7 @@ For sensor availability, GPU process columns and hardware requirements, see the 
 - **Hardware tools:** temperature readings, optional HWiNFO CSV sensor log, system overview and local CMD/PowerShell console.
 - **Live measurements:** up to 60 seconds of samples; missing counters are shown as unavailable rather than invented.
 - **Adjustable interface:** display themes, compact or comfortable density, and zoom controls in the title bar.
-- **Assistant and automation:** integrated chat, standalone CLI and local MCP server for measurements, process inspection and UI control. Four local MCP access profiles are available. The default Free profile accepts address-only connections from local processes and allows every registered tool without an extra confirmation; the chat and controlled profiles retain individual permissions. See the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md).
+- **Assistant and automation:** integrated chat, standalone CLI and local MCP server for measurements, process inspection and UI control. Four local MCP access profiles are available. The default Local controlled profile accepts address-only connections from local processes and keeps per-tool permissions, with a confirmation before ending a process. The Free profile, which allows every registered tool without an extra confirmation, must be selected explicitly. See the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md).
 
 ---
 
