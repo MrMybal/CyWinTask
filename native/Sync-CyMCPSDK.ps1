@@ -4,28 +4,24 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $revision = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'CYMCP_REVISION') -Raw).Trim()
 $local = [IO.Path]::GetFullPath((Join-Path $root '../CyMCPSDK'))
-if (Test-Path -LiteralPath (Join-Path $local 'CMakeLists.txt')) {
-    $actual = & git -c "safe.directory=$($local.Replace('\','/'))" -C $local rev-parse HEAD
-    if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne $revision) {
-        throw 'La copie locale de CyMCPSDK ne correspond pas à native/CYMCP_REVISION.'
+$target = Join-Path $root 'artifacts/cymcp-pinned'
+$safeTarget = [IO.Path]::GetFullPath($target).Replace('\','/')
+if (Test-Path -LiteralPath (Join-Path $target 'CMakeLists.txt')) {
+    $actual = & git -c "safe.directory=$safeTarget" -C $target rev-parse HEAD 2>$null
+    $changes = & git -c "safe.directory=$safeTarget" -C $target status --porcelain --untracked-files=normal 2>$null
+    if ($LASTEXITCODE -eq 0 -and $actual.Trim() -eq $revision -and -not $changes) {
+        Write-Output "CyMCPSDK épinglé prêt : $revision"
+        return
     }
-    Write-Output "CyMCPSDK local prêt : $revision"
-    return
+    throw 'La copie CyMCPSDK épinglée contient des changements ou une autre révision.'
 }
-$target = Join-Path $root 'third_party/CyMCPSDK'
-if (-not (Test-Path -LiteralPath $target)) {
-    New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null
-    & git clone https://github.com/MrMybal/CyMCPSDK.git $target
-    if ($LASTEXITCODE -ne 0) { throw 'Clone de CyMCPSDK en échec.' }
+New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null
+if (Test-Path -LiteralPath (Join-Path $local 'CMakeLists.txt')) {
+    & git clone --no-hardlinks --no-checkout $local $target
+} else {
+    & git clone --no-checkout https://github.com/MrMybal/CyMCPSDK.git $target
 }
-$actual = & git -c "safe.directory=$($target.Replace('\','/'))" -C $target rev-parse HEAD
-if ($LASTEXITCODE -ne 0) { throw 'La copie de CyMCPSDK est invalide.' }
-if ($actual.Trim() -ne $revision) {
-    $changes = & git -c "safe.directory=$($target.Replace('\','/'))" -C $target status --porcelain
-    if ($LASTEXITCODE -ne 0 -or $changes) { throw 'CyMCPSDK contient des modifications locales : changement de révision refusé.' }
-    & git -c "safe.directory=$($target.Replace('\','/'))" -C $target fetch origin $revision
-    if ($LASTEXITCODE -ne 0) { throw 'Révision CyMCPSDK introuvable.' }
-    & git -c "safe.directory=$($target.Replace('\','/'))" -C $target checkout --detach $revision
-    if ($LASTEXITCODE -ne 0) { throw 'Checkout de la révision CyMCPSDK en échec.' }
-}
-Write-Output "CyMCPSDK prêt : $revision"
+if ($LASTEXITCODE -ne 0) { throw 'Clone de CyMCPSDK impossible.' }
+& git -c "safe.directory=$safeTarget" -C $target checkout --detach $revision
+if ($LASTEXITCODE -ne 0) { throw "Révision CyMCPSDK $revision introuvable." }
+Write-Output "CyMCPSDK épinglé prêt : $revision"

@@ -208,7 +208,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     const int width = std::min(1500, availableWidth - 40);
     const int height = std::min(930, availableHeight - 40);
     HWND window = CreateWindowW(wc.lpszClassName, ui_locale::french()
-            ? L"CyWinTask 0.10.1 — Gestionnaire des tâches" : L"CyWinTask 0.10.1 — Task Manager",
+            ? L"CyWinTask 0.11.0 — Gestionnaire des tâches" : L"CyWinTask 0.11.0 — Task Manager",
         WS_OVERLAPPEDWINDOW, work.left + (availableWidth - width) / 2,
         work.top + (availableHeight - height) / 2, width, height, nullptr, nullptr, instance, nullptr);
     if (!createDevice(window)) {

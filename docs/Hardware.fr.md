@@ -1,4 +1,4 @@
-# Analyse matérielle dans CyWinTask 0.10.1
+# Analyse matérielle dans CyWinTask 0.11.0
 
 [README](../README.fr.md) · [Notes de version](../VERSION.fr.md)
 

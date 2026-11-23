@@ -1,10 +1,19 @@
-# CyWinTask 0.10.1
+# CyWinTask 0.11.0
 
-[English](VERSION.md) · [README](README.fr.md) · [Version publiée](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1)
+[English](VERSION.md) · [README](README.fr.md) · [Version publiée](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0)
 
 **Statut : en développement.** Cette version comprend l’application native Windows x64, son collecteur et le CLI autonome.
 
-## Changements de la version 0.10.1
+## Changements de la version 0.11.0
+
+- Remplacement de la barre supérieure chargée par une barre latérale CyUI avec indicateurs CPU, RAM, GPU et VRAM, et mode à icônes pour les fenêtres étroites.
+- Refonte de Processus : tableau plus lisible, liens parents/enfants plus nets, cellules colorées selon la charge et panneau latéral d’inspection.
+- Refonte de Performance : cartes de graphiques compactes, légendes avec valeurs, processus les plus actifs, capteurs clés et détails en cartes.
+- Présentation améliorée des pages Températures, Système et Assistant, avec une Console persistante au style terminal.
+- Passage du profil MCP local par défaut à **Local contrôlé** : connexion par adresse avec droits par outil. **Free** reste disponible sur sélection explicite.
+- Corrections de la gestion des icônes, de l’arrêt de la console, des réponses d’interface lorsque la fenêtre est réduite et des erreurs temporaires du collecteur.
+
+## Déjà présent dans la version 0.10.1
 
 - Ajout du tri par clic sur chacune des colonnes des processus GPU, avec comparaison numérique pour la confiance, les charges CPU/GPU, la mémoire du processus et les mémoires GPU en KiB, MiB ou GiB.
 - Placement des mesures indisponibles en fin de tri numérique.
@@ -35,4 +44,4 @@
 - L’historique des applications, la gestion des programmes au démarrage et celle des services ne sont pas encore inclus. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis.
 - La compilation depuis les sources demande un accès aux dépôts privés CyUI, CyMCPSDK et CyHWInfo ; les paquets publiés comprennent leurs composants compilés.
 
-Voir le [guide matériel](docs/Hardware.fr.md) et le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md). La [version 0.10.1](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1) fournit l’installateur, le ZIP portable et les sommes SHA-256.
+Voir le [guide matériel](docs/Hardware.fr.md) et le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md). La [version 0.11.0](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0) fournit l’installateur, le ZIP portable et les sommes SHA-256.

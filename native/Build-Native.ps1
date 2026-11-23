@@ -39,9 +39,25 @@ if (-not $CyUISource) {
 $CyUISource = [IO.Path]::GetFullPath($CyUISource)
 if (-not $CyMCPSDKSource) {
     $localSDK = [IO.Path]::GetFullPath((Join-Path $root '../CyMCPSDK'))
-    $CyMCPSDKSource = if (Test-Path -LiteralPath (Join-Path $localSDK 'CMakeLists.txt')) {
-        $localSDK
-    } else { Join-Path $root 'third_party/CyMCPSDK' }
+    $pinnedSDK = Join-Path $root 'artifacts/cymcp-pinned'
+    $vendoredSDK = Join-Path $root 'third_party/CyMCPSDK'
+    $revision = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'CYMCP_REVISION') -Raw).Trim()
+    foreach ($candidate in @($localSDK, $pinnedSDK, $vendoredSDK)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $candidate 'CMakeLists.txt'))) { continue }
+        $safeCandidate = [IO.Path]::GetFullPath($candidate).Replace('\','/')
+        $actual = & git -c "safe.directory=$safeCandidate" -C $candidate rev-parse HEAD 2>$null
+        if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne $revision) { continue }
+        $changes = & git -c "safe.directory=$safeCandidate" -C $candidate status --porcelain --untracked-files=normal
+        if ($LASTEXITCODE -eq 0 -and -not $changes) {
+            $CyMCPSDKSource = $candidate
+            break
+        }
+    }
+    if (-not $CyMCPSDKSource) {
+        if ($Offline) { throw 'CyMCPSDK épinglé introuvable en mode hors ligne. Exécuter native/Sync-CyMCPSDK.ps1.' }
+        & (Join-Path $PSScriptRoot 'Sync-CyMCPSDK.ps1')
+        $CyMCPSDKSource = $pinnedSDK
+    }
 }
 $CyMCPSDKSource = [IO.Path]::GetFullPath($CyMCPSDKSource)
 if (-not $CyHWInfoSource) {

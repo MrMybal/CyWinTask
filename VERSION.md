@@ -1,10 +1,19 @@
-# CyWinTask 0.10.1
+# CyWinTask 0.11.0
 
-[Français](VERSION.fr.md) · [README](README.md) · [Release](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1)
+[Français](VERSION.fr.md) · [README](README.md) · [Release](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0)
 
 **Stage: in development.** This version includes the native Windows x64 application, its collector and the standalone CLI.
 
-## What changed in 0.10.1
+## What changed in 0.11.0
+
+- Replaced the crowded top bar with a CyUI sidebar, live resource meters and a compact icon mode for narrow windows.
+- Reworked Processes with a lighter table, clearer parent/child guides, load-tinted cells and a side inspector for identity, trust, properties and actions.
+- Reworked Performance with compact chart cards, value legends, ranked processes, key sensors and card-based details.
+- Added clearer layouts for Temperatures, System info and Assistant, plus a persistent terminal-style Console.
+- Changed the default local MCP profile to **Local controlled**. Address-only clients retain per-tool permissions; **Free** remains available as an explicit choice.
+- Fixed icon-cache timing, console shutdown, minimized-window UI replies and transient collector errors.
+
+## Previously in 0.10.1
 
 - Added clickable sorting to every GPU process column, with numeric comparisons for trust, CPU/GPU load, process memory and GPU memory across KiB, MiB and GiB values.
 - Kept unavailable readings at the end of numeric sorts.
@@ -35,4 +44,4 @@
 - Application history, startup-program management and service management are not included yet. CyWinTask does not replace Windows Task Manager or its shortcuts.
 - Building from source requires access to the private CyUI, CyMCPSDK and CyHWInfo repositories; the published packages include their compiled components.
 
-See the [hardware guide](docs/Hardware.fr.md) and the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md). The [0.10.1 release](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1) provides the installer, portable ZIP and SHA-256 checksums.
+See the [hardware guide](docs/Hardware.fr.md) and the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md). The [0.11.0 release](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0) provides the installer, portable ZIP and SHA-256 checksums.

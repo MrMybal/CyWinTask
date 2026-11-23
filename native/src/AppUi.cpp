@@ -1086,7 +1086,7 @@ struct AppUi::State {
         dirty = true;
         if (auto* window = static_cast<HWND>(ImGui::GetMainViewport()->PlatformHandleRaw))
             SetWindowTextW(window, french
-                ? L"CyWinTask 0.10.1 — Gestionnaire des tâches" : L"CyWinTask 0.10.1 — Task Manager");
+                ? L"CyWinTask 0.11.0 — Gestionnaire des tâches" : L"CyWinTask 0.11.0 — Task Manager");
     }
     void zoomControls(const float width)
     {

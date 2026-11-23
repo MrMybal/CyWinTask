@@ -1,12 +1,12 @@
 <p align="center"><img src="Assets/cywintask-logo-transparent.png" alt="CyWinTask logo" width="112"></p>
 <h1 align="center">CyWinTask</h1>
-<p align="center"><strong>Windows x64 · 0.10.1 · In development</strong></p>
-<p align="center"><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-setup.exe">Installer</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-portable.zip">Portable ZIP</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1">Release notes</a></p>
+<p align="center"><strong>Windows x64 · 0.11.0 · In development</strong></p>
+<p align="center"><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-setup.exe">Installer</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-portable.zip">Portable ZIP</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0">Release notes</a></p>
 <p align="center"><a href="README.fr.md">Français</a> · <a href="LICENSE">GNU AGPL v3.0</a> · <a href="https://github.com/MrMybal/CyWinTask/issues">Issues</a></p>
 
 CyWinTask is a Windows x64 task manager for inspecting running processes and following system activity in real time. Its distributed interface uses Dear ImGui, CyUI and Direct3D 11; a separate .NET 8 collector supplies Windows measurements. CyMCPSDK powers the Assistant and MCP integration.
 
-> **IN DEVELOPMENT · 0.10.1**
+> **IN DEVELOPMENT · 0.11.0**
 >
 > The native Windows build is available for testing and analysis. Some Task Manager features remain unfinished; read the [version notes and known limitations](VERSION.md).
 
@@ -14,7 +14,7 @@ CyWinTask is a Windows x64 task manager for inspecting running processes and fol
 
 ## The application
 
-The **Processes** page searches by name or PID, sorts each column, filters or groups process types, and expands related parent/child processes. Its compact mode shows more rows, process age and a confidence score; the lower panel summarizes the selection. Select rows with Ctrl or Shift, then inspect details or use the right-click menu for available actions. CPU, GPU and memory bars show relative load; process icons appear when accessible. Its **GPU processes** subtab groups processes by GPU adapter and shows trust, CPU/GPU load and local/shared GPU memory. Every column can be sorted; click a row to inspect it or double-click to locate it in the main list. In the flat list, the GPU column measures only that process; in the tree, a parent row includes its descendants. The percentage uses the busiest GPU engine and shows “—” when the Windows counter is unavailable. The inspector also shows per-process local VRAM, shared GPU memory and committed GPU memory when Windows exposes those counters. Stopping a process requires confirmation and revalidates its identity. Children are not stopped implicitly.
+The **Processes** page searches by name or PID, sorts each column, filters or groups process types, and expands related parent/child processes. Its compact mode shows more rows, process age and a confidence score; the side inspector shows identity, trust, properties and actions for the selection. Select rows with Ctrl or Shift, then inspect details or use the right-click menu for available actions. CPU, GPU and memory bars show relative load; process icons appear when accessible. Its **GPU processes** subtab groups processes by GPU adapter and shows trust, CPU/GPU load and local/shared GPU memory. Every column can be sorted; click a row to inspect it or double-click to locate it in the main list. In the flat list, the GPU column measures only that process; in the tree, a parent row includes its descendants. The percentage uses the busiest GPU engine and shows “—” when the Windows counter is unavailable. The inspector also shows per-process local VRAM, shared GPU memory and committed GPU memory when Windows exposes those counters. Stopping a process requires confirmation and revalidates its identity. Children are not stopped implicitly.
 
 The confidence score is a **local indicator** based on Authenticode verification and the executable's location. Verification runs in the background without online revocation checks. Windows catalog signatures may not be confirmed by this check. The score does not establish whether a process is safe or malicious; hover and the inspection panel show the available evidence.
 
@@ -32,7 +32,7 @@ For sensor availability, GPU process columns and hardware requirements, see the 
 - **Compact monitoring:** CPU, RAM, GPU, disk and network cards, plus detailed graphs and detachable windows.
 - **Hardware tools:** temperature readings, optional HWiNFO CSV sensor log, system overview and local CMD/PowerShell console.
 - **Live measurements:** up to 60 seconds of samples; missing counters are shown as unavailable rather than invented.
-- **Adjustable interface:** display themes, compact or comfortable density, and zoom controls in the title bar.
+- **Adjustable interface:** display themes, compact or comfortable density, and zoom controls in the sidebar.
 - **Assistant and automation:** integrated chat, standalone CLI and local MCP server for measurements, process inspection and UI control. Four local MCP access profiles are available. The default Local controlled profile accepts address-only connections from local processes and keeps per-tool permissions, with a confirmation before ending a process. The Free profile, which allows every registered tool without an extra confirmation, must be selected explicitly. See the [Assistant, CLI and MCP guide](docs/CyMCPSDK.fr.md).
 
 ---
@@ -41,11 +41,11 @@ For sensor availability, GPU process columns and hardware requirements, see the 
 
 The published application targets Windows x64. The installer is configured for Windows 10 or later. The process collector includes its .NET runtime. Advanced hardware sensors use a separate .NET 8 bridge and need the [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0). Native measurements remain available without it. Some low-level sensors additionally need the signed [PawnIO driver](https://pawnio.eu/); installation is explicit and may require Windows approval.
 
-1. Download the [0.10.1 installer](https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-setup.exe) or [portable ZIP](https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-portable.zip).
+1. Download the [0.11.0 installer](https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-setup.exe) or [portable ZIP](https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-portable.zip).
 2. Run the installer, or extract the **entire** portable ZIP to a folder.
 3. Start `CyWinTask.exe`. For the portable build, keep the `bridge` and `cyhwinfo-lhm` folders beside it.
 
-The installer adds a Start menu shortcut and offers an optional desktop shortcut. CyWinTask does not replace Windows Task Manager or its keyboard shortcuts. See the [release and checksums](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1).
+The installer adds a Start menu shortcut and offers an optional desktop shortcut. CyWinTask does not replace Windows Task Manager or its keyboard shortcuts. See the [release and checksums](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0).
 
 ## Source, build and required libraries
 

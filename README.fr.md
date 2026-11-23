@@ -1,12 +1,12 @@
 <p align="center"><img src="Assets/cywintask-logo-transparent.png" alt="Logo de CyWinTask" width="112"></p>
 <h1 align="center">CyWinTask</h1>
-<p align="center"><strong>Windows x64 · 0.10.1 · En développement</strong></p>
-<p align="center"><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-setup.exe">Installateur</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-portable.zip">ZIP portable</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1">Notes de version</a></p>
+<p align="center"><strong>Windows x64 · 0.11.0 · En développement</strong></p>
+<p align="center"><a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-setup.exe">Installateur</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-portable.zip">ZIP portable</a> · <a href="https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0">Notes de version</a></p>
 <p align="center"><a href="README.md">English</a> · <a href="LICENSE">GNU AGPL v3.0</a> · <a href="https://github.com/MrMybal/CyWinTask/issues">Problèmes</a></p>
 
 CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processus et suivre l’activité du système en temps réel. L’interface distribuée utilise Dear ImGui, CyUI et Direct3D 11 ; un collecteur .NET 8 séparé fournit les mesures Windows. CyMCPSDK assure l'intégration de l'Assistant et de MCP.
 
-> **EN DÉVELOPPEMENT · 0.10.1**
+> **EN DÉVELOPPEMENT · 0.11.0**
 >
 > La version native Windows est disponible pour les essais et l’analyse. Certaines fonctions du Gestionnaire de tâches restent à développer ; consulter les [notes de version et limites connues](VERSION.fr.md).
 
@@ -14,7 +14,7 @@ CyWinTask est un gestionnaire de tâches Windows x64 pour inspecter les processu
 
 ## L’application
 
-La page **Processus** recherche par nom ou PID, trie chaque colonne, filtre ou regroupe les types de processus et déplie les relations parent/enfants. Son mode compact affiche davantage de lignes, avec la durée et une note de confiance ; le panneau inférieur résume la sélection. Sélectionner plusieurs lignes avec Ctrl ou Maj pour consulter les détails ou utiliser les actions du clic droit. Les barres CPU, GPU et mémoire montrent la charge relative ; les icônes apparaissent quand elles sont accessibles. Son sous onglet **Processus GPU** regroupe les tâches par adaptateur et affiche la confiance, les charges CPU/GPU et les mémoires GPU locale et partagée. Chaque colonne se trie par clic ; un clic inspecte le processus et un double-clic le retrouve dans la liste principale. En liste plate, la colonne GPU mesure le processus seul ; dans l’arborescence, une ligne parent affiche la charge de sa branche, enfants compris. Le pourcentage correspond au moteur GPU le plus sollicité et affiche « — » si le compteur Windows est indisponible. L’inspection affiche aussi la VRAM locale, la mémoire GPU partagée et la mémoire GPU engagée par processus lorsque Windows expose ces compteurs. L’arrêt demande confirmation et vérifie de nouveau l’identité du processus. Les enfants ne sont pas arrêtés implicitement.
+La page **Processus** recherche par nom ou PID, trie chaque colonne, filtre ou regroupe les types de processus et déplie les relations parent/enfants. Son mode compact affiche davantage de lignes, avec la durée et une note de confiance ; le panneau latéral présente l’identité, la confiance, les propriétés et les actions de la sélection. Sélectionner plusieurs lignes avec Ctrl ou Maj pour consulter les détails ou utiliser les actions du clic droit. Les barres CPU, GPU et mémoire montrent la charge relative ; les icônes apparaissent quand elles sont accessibles. Son sous onglet **Processus GPU** regroupe les tâches par adaptateur et affiche la confiance, les charges CPU/GPU et les mémoires GPU locale et partagée. Chaque colonne se trie par clic ; un clic inspecte le processus et un double-clic le retrouve dans la liste principale. En liste plate, la colonne GPU mesure le processus seul ; dans l’arborescence, une ligne parent affiche la charge de sa branche, enfants compris. Le pourcentage correspond au moteur GPU le plus sollicité et affiche « — » si le compteur Windows est indisponible. L’inspection affiche aussi la VRAM locale, la mémoire GPU partagée et la mémoire GPU engagée par processus lorsque Windows expose ces compteurs. L’arrêt demande confirmation et vérifie de nouveau l’identité du processus. Les enfants ne sont pas arrêtés implicitement.
 
 La note de confiance est un **indice local** fondé sur la vérification Authenticode et l’emplacement du fichier. La vérification se fait en arrière-plan, sans requête réseau de révocation. Une signature par catalogue Windows peut ne pas être confirmée par cette vérification. La note ne prouve pas qu’un processus est sûr ou malveillant ; le survol et le panneau d’inspection indiquent les éléments disponibles.
 
@@ -32,7 +32,7 @@ Le [guide matériel](docs/Hardware.fr.md) détaille les colonnes des processus G
 - **Surveillance compacte :** cartes CPU, RAM, GPU, disque et réseau, graphiques détaillés et fenêtres détachables.
 - **Outils matériels :** températures, journal CSV HWiNFO optionnel, résumé du système et console CMD/PowerShell locale.
 - **Mesures en direct :** jusqu’à 60 secondes d’historique ; les compteurs manquants sont indiqués comme indisponibles.
-- **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre supérieure.
+- **Interface réglable :** thèmes, densité compacte ou confortable et commandes de zoom dans la barre latérale.
 - **Assistant et automatisation :** chat intégré, CLI autonome et serveur MCP local pour les mesures, l'inspection des processus et le contrôle de l'interface. Quatre profils MCP locaux sont disponibles. Le profil Local contrôlé par défaut accepte une connexion par adresse seule depuis les processus locaux et conserve les droits par outil, avec une confirmation avant l'arrêt d'un processus. Le profil Free, qui autorise tous les outils enregistrés sans confirmation supplémentaire, doit être choisi explicitement. Voir le [guide Assistant, CLI et MCP](docs/CyMCPSDK.fr.md).
 
 ---
@@ -41,11 +41,11 @@ Le [guide matériel](docs/Hardware.fr.md) détaille les colonnes des processus G
 
 L’application publiée cible Windows x64. L’installateur est configuré pour Windows 10 ou plus récent. Le collecteur de processus embarque son runtime .NET. Les capteurs matériels avancés utilisent un pont .NET 8 séparé et demandent le [runtime .NET 8](https://dotnet.microsoft.com/download/dotnet/8.0). Les mesures natives restent disponibles sans lui. Certains capteurs bas niveau demandent également le [pilote PawnIO signé](https://pawnio.eu/) ; son installation est explicite et peut demander une validation Windows.
 
-1. Télécharger l’[installateur 0.10.1](https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-setup.exe) ou le [ZIP portable](https://github.com/MrMybal/CyWinTask/releases/download/v0.10.1/CyWinTask-0.10.1-win-x64-portable.zip).
+1. Télécharger l’[installateur 0.11.0](https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-setup.exe) ou le [ZIP portable](https://github.com/MrMybal/CyWinTask/releases/download/v0.11.0/CyWinTask-0.11.0-win-x64-portable.zip).
 2. Lancer l’installateur ou extraire le ZIP portable **entièrement** dans un dossier.
 3. Démarrer `CyWinTask.exe`. Pour le portable, conserver les dossiers `bridge` et `cyhwinfo-lhm` à côté de l’exécutable.
 
-L’installateur ajoute un raccourci au menu Démarrer et propose un raccourci bureau. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis clavier. Voir la [version publiée et ses sommes de contrôle](https://github.com/MrMybal/CyWinTask/releases/tag/v0.10.1).
+L’installateur ajoute un raccourci au menu Démarrer et propose un raccourci bureau. CyWinTask ne remplace pas le Gestionnaire de tâches Windows ni ses raccourcis clavier. Voir la [version publiée et ses sommes de contrôle](https://github.com/MrMybal/CyWinTask/releases/tag/v0.11.0).
 
 ## Sources, compilation et bibliothèques nécessaires
 
